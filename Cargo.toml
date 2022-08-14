@@ -1,0 +1,28 @@
+[package]
+name = "paracosm"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = [
+    "crates/*"
+]
+
+[dependencies]
+paracosm_gpu = { path = "crates/paracosm_gpu" }
+paracosm_render = { path = "crates/paracosm_render" }
+
+bevy = { version = "0.8.0", default-features = false, features = ["dynamic", "bevy_winit"] }
+
+# Enable a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 1
+
+# Enable high optimizations for dependencies (incl. Bevy), but not for our code:
+[profile.dev.package."*"]
+opt-level = 3
+
+
+[[example]]
+name = "paracosm_render"
+path = "examples/paracosm_render/test_example.rs"

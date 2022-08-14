@@ -1,0 +1,20 @@
+[package]
+name = "paracosm_gpu"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["dev"]
+dev = []
+
+[dependencies]
+# Bevy
+bevy_app = { version = "0.8.0" }
+bevy_ecs = { version = "0.8.0" }
+bevy_log = { version = "0.8.0" }
+bevy_window = { version = "0.8.0" }
+
+ash = { version = "0.37.0", features = ["linked"] }
+ash-window = { version = "0.10.0" }
