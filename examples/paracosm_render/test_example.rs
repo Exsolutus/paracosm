@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-// use paracosm_gpu::GPUPlugin;
+use paracosm_gpu::GpuPlugin;
 // use paracosm_render::RenderPlugin;
 
 use std::env;
@@ -11,7 +11,7 @@ fn main() {
 
     App::new()
         .add_plugins(DefaultPlugins)
-        // .add_plugin(GPUPlugin)
+        .add_plugin(GpuPlugin)
         // .add_plugin(RenderPlugin)
         .run();
 }
