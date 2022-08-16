@@ -29,12 +29,6 @@ pub struct InstanceInternal {
     #[cfg(debug_assertions)] _debug_callback: vk::DebugUtilsMessengerEXT
 }
 
-impl InstanceInternal {
-    pub fn bar(&self) {
-        info!("bar");
-    }
-}
-
 impl Deref for InstanceInternal {
     type Target = ash::Instance;
 
@@ -70,6 +64,7 @@ impl Drop for InstanceInternal {
 
 
 /// Public API for interacting with the Vulkan instance.
+#[derive(Clone)]
 pub struct Instance {
     internal: Arc<InstanceInternal>
 }
@@ -124,16 +119,10 @@ impl Instance {
             }) 
         })
     }
-}
 
-// Manually implement Clone to log ref counts for debugging
-impl Clone for Instance {
     #[inline]
-    fn clone(&self) -> Self {
-        #[cfg(debug_assertions)]
-        info!("Ref count: {}", Arc::strong_count(&self.internal) + 1);
-
-        Self { internal: self.internal.clone() }
+    pub fn strong_count(&self) -> usize {
+        Arc::strong_count(&self.internal)
     }
 }
 

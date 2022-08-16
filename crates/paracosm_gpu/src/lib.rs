@@ -1,8 +1,11 @@
 
+mod utils;
 mod instance;
+mod device;
 
 // Public API
 pub use instance::Instance;
+pub use device::Device;
 
 
 use ash::vk;
@@ -64,16 +67,15 @@ impl Plugin for GpuPlugin {
             .api_version(api_version)
             .build();
         let mut instance_extensions = window_extensions;
-        let test = Instance::new(entry, app_info, &mut instance_extensions).unwrap();
+        let instance = Instance::new(entry, app_info, &mut instance_extensions).unwrap();
         
-        let test2 = test.clone();
-        
-        let test3 = test2.clone();
+        let device = Device::primary(instance.clone()).unwrap();
 
-    
-        test.bar();
-        test2.bar();
-        test3.bar();
+        let test = instance.clone();
+        info!("Instance refs: {}", instance.strong_count());
+
+        let test2 = device.clone();
+        info!("Device refs: {}", device.strong_count());
     }
 }
 
