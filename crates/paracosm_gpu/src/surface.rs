@@ -4,49 +4,51 @@ use ash::extensions::khr;
 use ash::vk;
 
 use bevy_log::prelude::*;
-use bevy_window::{PresentMode, RawWindowHandleWrapper, WindowId};
+use bevy_window::{PresentMode, RawWindowHandleWrapper};
 
 use std::{
     cell::RefCell,
     ops::Deref, 
     rc::Rc,
+    slice,
     string::String
 };
 
-pub struct Window {
-    pub id: WindowId,
-    pub handle: RawWindowHandleWrapper,
-    pub extent: vk::Extent2D,
-    pub present_mode: PresentMode,
-    pub swapchain_image: Option<vk::ImageView>,
-    pub resized: bool
-}
+// TODO: cleanup supporting structs, possibly split files
 
-pub struct Swapchain {
+pub(self) struct Swapchain {
     device: Device,
 
-    swapchain: khr::Swapchain,
+    pub swapchain: khr::Swapchain,
     handle: vk::SwapchainKHR,
 
-    image_format: vk::Format,
-    image_extent: vk::Extent2D,
-    images: Vec<vk::Image>,
+    _image_format: vk::Format,
+    _image_extent: vk::Extent2D,
+    _images: Vec<vk::Image>,
     image_views: Vec<vk::ImageView>,
 
     present_semaphore: vk::Semaphore
 }
 
+impl Deref for Swapchain {
+    type Target = khr::Swapchain;
+
+    fn deref(&self) -> &Self::Target {
+        &self.swapchain
+    }
+}
+
 impl Drop for Swapchain {
     fn drop(&mut self) {
         info!("Dropping Swapchain!");
-        
+
         unsafe {
             let _ = self.device.device_wait_idle();
 
             self.image_views.iter().for_each(|image_view| {
                 self.device.destroy_image_view(*image_view, None)
             });
-            self.swapchain.destroy_swapchain(self.handle, None);
+            self.destroy_swapchain(self.handle, None);
         }
     }
 }
@@ -56,7 +58,7 @@ impl Drop for Swapchain {
 /// [`Surface`] is the public API for interacting with the Vulkan surface.
 pub struct SurfaceInternal {
     pub device: Device,
-    present_queue_index: u32,
+    _present_queue_index: u32,
 
     surface: khr::Surface,
     surface_handle: vk::SurfaceKHR,
@@ -64,21 +66,13 @@ pub struct SurfaceInternal {
     swapchain: RefCell<Option<Swapchain>>,
 }
 
-impl Deref for SurfaceInternal {
-    type Target = khr::Surface;
-
-    fn deref(&self) -> &Self::Target {
-        &self.surface
-    }
-}
-
 impl Drop for SurfaceInternal {
     fn drop(&mut self) {
-        info!("Dropping Surface!");
-        
-        unsafe {
-            self.swapchain.replace(None);
+        // First drop any active swapchain
+        let _ = self.swapchain.replace(None);
 
+        info!("Dropping Surface!");
+        unsafe {
             self.surface.destroy_surface(self.surface_handle, None);
         }
     }
@@ -93,10 +87,10 @@ pub struct Surface {
 impl Surface {
     pub fn new(
         device: Device,
-        window: &Window
+        window_handle: &RawWindowHandleWrapper
     ) -> Result<Self, String> {
         let instance = &device.instance;
-        let window_handle = unsafe { window.handle.get_handle() };
+        let window_handle = unsafe { window_handle.get_handle() };
 
         // Create surface from window
         let surface = khr::Surface::new(&instance.entry, &instance);
@@ -111,13 +105,13 @@ impl Surface {
         };
 
         // Select presentation queue for device
-        // TODO: 
+        // TODO: evaluate all queues and select best
         let present_queue_index = device.queues.graphics_family;
 
         Ok(Self {
             internal: Rc::new(SurfaceInternal {
                 device,
-                present_queue_index,
+                _present_queue_index: present_queue_index,
                 surface,
                 surface_handle,
                 swapchain: RefCell::new(None),
@@ -126,20 +120,20 @@ impl Surface {
     }
 
     // TODO: refactor to more elegantly handle errors
-    pub fn configure(&self, window: &Window, present_semaphore: vk::Semaphore) {
+    pub fn configure(&self, present_mode: PresentMode, extent: vk::Extent2D, present_semaphore: vk::Semaphore) {
         // Drop any existing swapchain
         self.swapchain.replace(None);
 
         // Check swapchain support
-        let capabilities = match unsafe { self.get_physical_device_surface_capabilities(self.device.physical_device, self.surface_handle) } {
+        let capabilities = match unsafe { self.surface.get_physical_device_surface_capabilities(self.device.physical_device, self.surface_handle) } {
             Ok(result) => result,
             Err(error) => panic!("{}", error.to_string())
         };
-        let formats = match unsafe { self.get_physical_device_surface_formats(self.device.physical_device, self.surface_handle) } {
+        let formats = match unsafe { self.surface.get_physical_device_surface_formats(self.device.physical_device, self.surface_handle) } {
             Ok(result) => result,
             Err(error) => panic!("{}", error.to_string())
         };
-        let present_modes = match unsafe { self.get_physical_device_surface_present_modes(self.device.physical_device, self.surface_handle) } {
+        let present_modes = match unsafe { self.surface.get_physical_device_surface_present_modes(self.device.physical_device, self.surface_handle) } {
             Ok(result) => result,
             Err(error) => panic!("{}", error.to_string())
         };
@@ -159,7 +153,7 @@ impl Surface {
             Some(&formats[0])
         })
         .unwrap();
-        let present_mode = match window.present_mode {
+        let present_mode = match present_mode {
             PresentMode::Fifo => vk::PresentModeKHR::FIFO,
             PresentMode::Mailbox => vk::PresentModeKHR::MAILBOX,
             PresentMode::Immediate => vk::PresentModeKHR::IMMEDIATE,
@@ -167,7 +161,7 @@ impl Surface {
             PresentMode::AutoNoVsync => vk::PresentModeKHR::MAILBOX,
         };
         let surface_extent = match capabilities.current_extent.width {
-            u32::MAX => window.extent,
+            u32::MAX => extent,
             _ => capabilities.current_extent
         };
 
@@ -227,9 +221,9 @@ impl Surface {
             device: self.device.clone(),
             swapchain,
             handle: swapchain_handle,
-            image_format: selected_format.format,
-            image_extent: surface_extent,
-            images,
+            _image_format: selected_format.format,
+            _image_extent: surface_extent,
+            _images: images,
             image_views,
             present_semaphore
         });
@@ -246,6 +240,23 @@ impl Surface {
             },
             None => Err("Surface has no swapchain!".to_string())
         }
+    }
+
+    pub fn queue_present(&self, queue: vk::Queue, image_indices: &[u32]) -> Result<bool, String> {
+        let swapchain = self.swapchain.borrow();
+        if let Some(swapchain) = swapchain.deref() {
+            let present_info = &vk::PresentInfoKHR::builder()
+                .swapchains(slice::from_ref(&swapchain.handle))
+                .wait_semaphores(slice::from_ref(&swapchain.present_semaphore))
+                .image_indices(image_indices);
+
+            match unsafe { swapchain.queue_present(queue, present_info) } {
+                Ok(result) => return Ok(result),
+                Err(error) => return Err(error.to_string())
+            };
+        }
+        
+        Ok(false)
     }
 
     #[inline]

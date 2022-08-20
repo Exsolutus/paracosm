@@ -18,7 +18,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-
+// TODO: make sure you understand the usage of this main world
 /// The simulation [`World`] of the application, stored as a resource.
 /// This resource is only available during [`RenderStage::Extract`] and not
 /// during command application of that stage.
@@ -109,7 +109,7 @@ impl Plugin for RenderPlugin {
         // Get the ComponentId for MainWorld. This does technically 'waste' a `WorldId`, but that's probably fine
         render_app.init_resource::<MainWorld>();
         render_app.world.remove_resource::<MainWorld>();
-        let main_world_in_render = render_app
+        let _main_world_in_render = render_app
             .world
             .components()
             .get_resource_id(TypeId::of::<MainWorld>());
@@ -119,7 +119,11 @@ impl Plugin for RenderPlugin {
             .add_stage(RenderStage::Prepare, SystemStage::parallel())
             .add_stage(RenderStage::Queue, SystemStage::parallel())
             .add_stage(RenderStage::PhaseSort, SystemStage::parallel())
-            .add_stage(RenderStage::Render, SystemStage::parallel())
+            .add_stage(
+                RenderStage::Render, 
+                SystemStage::parallel()
+                    .with_system(renderer::render_system.exclusive_system().at_end())
+            )
             .add_stage(RenderStage::Cleanup, SystemStage::parallel())
             .insert_resource(instance)
             .insert_resource(device)
@@ -151,6 +155,20 @@ impl Plugin for RenderPlugin {
                     .unwrap();
                 prepare.run(&mut render_app.world);
             }
+
+            {
+                #[cfg(feature = "trace")]
+                let _stage_span =
+                    bevy_utils::tracing::info_span!("stage", name = "render").entered();
+
+                // render
+                let render = render_app
+                    .schedule
+                    .get_stage_mut::<SystemStage>(&RenderStage::Render)
+                    .unwrap();
+                render.run(&mut render_app.world);
+            }
+
         });
 
         // Add supporting plugins
@@ -158,6 +176,7 @@ impl Plugin for RenderPlugin {
     }
 }
 
+// TODO: make sure you understand usage of this scratch world
 /// A "scratch" world used to avoid allocating new worlds every frame when
 /// swapping out the [`MainWorld`] for [`RenderStage::Extract`].
 #[derive(Default)]

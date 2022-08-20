@@ -1,14 +1,15 @@
 use crate::{Extract, RenderApp, RenderStage};
 use crate::renderer::SyncStructures;
 
+use ash::vk;
 use ash::vk::Extent2D;
 
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
-use bevy_window::{RawWindowHandleWrapper, WindowClosed, WindowId, Windows};
+use bevy_window::{PresentMode, RawWindowHandleWrapper, WindowClosed, WindowId, Windows};
 
-use paracosm_gpu::{Instance, Device, Surface, Window as ExtractedWindow};
+use paracosm_gpu::{Device, Surface};
 
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
@@ -37,6 +38,16 @@ impl Plugin for WindowRenderPlugin {
     }
 }
 
+
+pub struct ExtractedWindow {
+    pub id: WindowId,
+    pub handle: RawWindowHandleWrapper,
+    pub extent: vk::Extent2D,
+    pub present_mode: PresentMode,
+    pub swapchain_image_index: Option<u32>,
+    pub resized: bool
+}
+
 #[derive(Default)]
 pub struct ExtractedWindows {
     pub windows: HashMap<WindowId, ExtractedWindow>
@@ -58,10 +69,9 @@ impl DerefMut for ExtractedWindows {
 
 #[derive(Default)]
 pub struct WindowSurfaces {
-    surfaces: HashMap<WindowId, Surface>,
+    pub surfaces: HashMap<WindowId, Surface>,
     configured_windows: HashSet<WindowId>
 }
-
 
 pub fn extract_windows(
     mut extracted_windows: ResMut<ExtractedWindows>,
@@ -81,12 +91,12 @@ pub fn extract_windows(
                 handle: window.raw_window_handle(),
                 extent,
                 present_mode: window.present_mode(),
-                swapchain_image: None,
+                swapchain_image_index: None,
                 resized: false
             });
         
         // Drop active swapchain frame
-        extracted_window.swapchain_image = None;
+        extracted_window.swapchain_image_index = None;
 
         // Check for window resize
         extracted_window.resized = extent != extracted_window.extent;
@@ -120,18 +130,25 @@ pub fn prepare_windows(
         let surface = window_surfaces.surfaces
             .entry(window.id)
             .or_insert_with(|| {
-                match Surface::new(device.clone(), window) {
+                match Surface::new(device.clone(), &window.handle) {
                     Ok(result) => result,
                     Err(error) => panic!("{}", error.to_string())
                 }
             });
 
         if window_surfaces.configured_windows.insert(window.id) || window.resized {
-            surface.configure(window, sync_structures.present_semaphore);
+            surface.configure(window.present_mode, window.extent, sync_structures.present_semaphore);
         }
 
-        let image = surface.acquire_next_image(1000000000);
+        let image_index = match surface.acquire_next_image(1000000000) {
+            Ok(result) => result.0,
+            // Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+            //     self.configure(window, result.present_semaphore);
+            //     unsafe { result.swapchain.acquire_next_image(result.handle, timeout, result.present_semaphore, vk::Fence::null()) }
+            // },
+            Err(error) => return error!("{}", error.to_string())
+        };
 
-        window.swapchain_image = image;
+        window.swapchain_image_index = Some(image_index);
     })
 }
