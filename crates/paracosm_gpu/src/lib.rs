@@ -1,24 +1,22 @@
-
-mod utils;
-mod instance;
 mod device;
-
-// Public API
-pub use instance::Instance;
-pub use device::Device;
-
+mod instance;
+mod surface;
+mod utils;
 
 use ash::vk;
 
 use bevy_app::Plugin;
 use bevy_log::prelude::*;
 
-use std::{
-    ffi::CStr,
-    ffi::CString
-};
+use std::{ffi::CStr, ffi::CString};
 
+// Public API
+pub use device::Device;
+pub use instance::Instance;
+pub use surface::Window;
+pub use surface::Surface;
 
+/// Vulkan abstractions exposed as Bevy plugin to provide flexible GPU access
 #[derive(Default)]
 pub struct GpuPlugin;
 
@@ -26,10 +24,10 @@ impl Plugin for GpuPlugin {
     fn build(&self, app: &mut bevy_app::App) {
         // Acquire application window
         let windows = app.world.resource_mut::<bevy_window::Windows>();
-        let window = windows.get_primary().expect("Failed to get application window!");
-        let window_handle = unsafe {
-            window.raw_window_handle().get_handle() 
-        };
+        let window = windows
+            .get_primary()
+            .expect("Failed to get application window!");
+        let window_handle = unsafe { window.raw_window_handle().get_handle() };
         let window_extensions = ash_window::enumerate_required_extensions(&window_handle)
             .expect("Failed to get window extensions!")
             .to_vec();
@@ -37,14 +35,16 @@ impl Plugin for GpuPlugin {
         #[cfg(debug_assertions)]
         {
             info!("Application Window Extensions:");
-            window_extensions.iter().for_each(|name| {info!("\t{:?}", unsafe { CStr::from_ptr(*name) } )});    
+            window_extensions
+                .iter()
+                .for_each(|name| info!("\t{:?}", unsafe { CStr::from_ptr(*name) }));
         }
 
         // Ash entry
         let entry = ash::Entry::linked();
 
-        // Create Vulkan instance
-        let api_version = match entry.try_enumerate_instance_version().unwrap()  {
+        // Create Instance
+        let api_version = match entry.try_enumerate_instance_version().unwrap() {
             // Vulkan 1.1+
             Some(version) => {
                 let major = vk::api_version_major(version);
@@ -55,7 +55,7 @@ impl Plugin for GpuPlugin {
                     panic!("Vulkan API version 1.3 or greater is required!")
                 }
                 version
-            },
+            }
             // Vulkan 1.0
             None => panic!("Vulkan API version 1.3 or greater is required!"),
         };
@@ -67,16 +67,12 @@ impl Plugin for GpuPlugin {
             .api_version(api_version)
             .build();
         let mut instance_extensions = window_extensions;
-        let instance = Instance::new(entry, app_info, &mut instance_extensions).unwrap();
-        
-        let device = Device::primary(instance.clone()).unwrap();
+        let instance = match Instance::new(entry, app_info, &mut instance_extensions) {
+            Ok(result) => result,
+            Err(error) => panic!("Instance creation failed: {}", error),
+        };
 
-        let test = instance.clone();
-        info!("Instance refs: {}", instance.strong_count());
-
-        let test2 = device.clone();
-        info!("Device refs: {}", device.strong_count());
+        // Add Instance to main app as resource
+        app.world.insert_resource(instance);
     }
 }
-
-

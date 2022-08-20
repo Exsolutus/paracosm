@@ -1,21 +1,12 @@
-
-use ash::{
-    extensions::{
-        ext::DebugUtils,
-    },
-    vk
-};
+use ash::{extensions::ext::DebugUtils, vk};
 
 use bevy_log::prelude::*;
 
 use std::{
     ffi::CStr,
     ops::Deref,
-    os::raw::{
-        c_char,
-        c_void
-    },
-    sync::Arc
+    os::raw::{c_char, c_void},
+    sync::Arc,
 };
 
 /// Internal data for the Vulkan instance.
@@ -25,8 +16,10 @@ pub struct InstanceInternal {
     pub entry: ash::Entry,
     instance: ash::Instance,
 
-    #[cfg(debug_assertions)] _debug_utils: DebugUtils,
-    #[cfg(debug_assertions)] _debug_callback: vk::DebugUtilsMessengerEXT
+    #[cfg(debug_assertions)]
+    _debug_utils: DebugUtils,
+    #[cfg(debug_assertions)]
+    _debug_callback: vk::DebugUtilsMessengerEXT,
 }
 
 impl Deref for InstanceInternal {
@@ -48,51 +41,51 @@ impl Drop for InstanceInternal {
             //
             //  Messenger is private to this object
             #[cfg(debug_assertions)]
-            self._debug_utils.destroy_debug_utils_messenger(self._debug_callback, None);
+            self._debug_utils
+                .destroy_debug_utils_messenger(self._debug_callback, None);
 
             //  Safety: vkDestroyInstance
             //  Host Synchronization
             //   -  Host access to instance must be externally synchronized
             //   -  Host access to all VkPhysicalDevice objects enumerated from instance must be externally synchronized
-            //  
+            //
             //  Synchronized host access to instance guaranteed by borrow checker with '&mut self'
-            //  Device objects created with this instance retain a reference, so this should only drop after all Devices drop  
+            //  Device objects created with this instance retain a reference, so this should only drop after all Devices drop
             self.instance.destroy_instance(None);
         }
     }
 }
 
-
 /// Public API for interacting with the Vulkan instance.
 #[derive(Clone)]
 pub struct Instance {
-    internal: Arc<InstanceInternal>
+    internal: Arc<InstanceInternal>,
 }
 
 impl Instance {
     pub fn new(
         entry: ash::Entry,
         app_info: vk::ApplicationInfo,
-        extensions: &mut Vec<*const c_char>
+        extensions: &mut Vec<*const c_char>,
     ) -> Result<Self, String> {
         info!("Creating Vulkan instance");
-        
+
         // Define instance layers to request
         let mut layers: Vec<*const c_char> = vec![
             // Layer names must be null-terminated
-            
+
         ];
         #[cfg(debug_assertions)]
-        layers.append(&mut vec!["VK_LAYER_KHRONOS_validation\0".as_ptr() as *const c_char]);
+        layers.append(&mut vec![
+            "VK_LAYER_KHRONOS_validation\0".as_ptr() as *const c_char
+        ]);
 
         // Add DebugUtils to extensions to request
         #[cfg(debug_assertions)]
         {
             let debug_ext = DebugUtils::name().as_ptr();
             if !extensions.contains(&debug_ext) {
-                extensions.append(&mut vec![
-                    debug_ext
-                ]);
+                extensions.append(&mut vec![debug_ext]);
             }
         }
 
@@ -103,20 +96,22 @@ impl Instance {
             .enabled_extension_names(extensions);
         let mut instance = match unsafe { entry.create_instance(&create_info, None) } {
             Ok(result) => result,
-            Err(error) => return Err(error.to_string())
+            Err(error) => return Err(error.to_string()),
         };
 
         #[cfg(debug_assertions)]
         let (_debug_utils, _debug_callback) = setup_debug_utils(&entry, &mut instance);
 
-        Ok(Self { 
+        Ok(Self {
             internal: Arc::new(InstanceInternal {
                 entry,
                 instance,
 
-                #[cfg(debug_assertions)] _debug_utils,
-                #[cfg(debug_assertions)] _debug_callback
-            }) 
+                #[cfg(debug_assertions)]
+                _debug_utils,
+                #[cfg(debug_assertions)]
+                _debug_callback,
+            }),
         })
     }
 
@@ -140,8 +135,6 @@ impl Drop for Instance {
         info!("Dropping ref to Instance!");
     }
 }
-
-
 
 /// Vulkan Debug Utils callback function
 #[cfg(debug_assertions)]
@@ -171,25 +164,28 @@ unsafe extern "system" fn vulkan_debug_utils_callback(
 }
 
 #[cfg(debug_assertions)]
-fn setup_debug_utils(_entry: &ash::Entry, instance: &mut ash::Instance) -> (DebugUtils, vk::DebugUtilsMessengerEXT) {
+fn setup_debug_utils(
+    _entry: &ash::Entry,
+    instance: &mut ash::Instance,
+) -> (DebugUtils, vk::DebugUtilsMessengerEXT) {
     let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
         .message_severity(
-            vk::DebugUtilsMessageSeverityFlagsEXT::ERROR | 
-            vk::DebugUtilsMessageSeverityFlagsEXT::WARNING | 
-            vk::DebugUtilsMessageSeverityFlagsEXT::INFO
+            vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+                | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
+                | vk::DebugUtilsMessageSeverityFlagsEXT::INFO,
         )
         .message_type(
-            vk::DebugUtilsMessageTypeFlagsEXT::GENERAL |
-            vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION |
-            vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE
+            vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+                | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+                | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
         )
         .pfn_user_callback(Some(vulkan_debug_utils_callback))
         .build();
-    
+
     let debug_utils_loader = DebugUtils::new(_entry, instance);
-    /*  The application must ensure that vkCreateDebugUtilsMessengerEXT is not executed in parallel with any 
+    /*  The application must ensure that vkCreateDebugUtilsMessengerEXT is not executed in parallel with any
      *  Vulkan command that is also called with instance or child of instance as the dispatchable argument.
-     *  
+     *
      *  Guaranteed by borrow checker with 'instance: &mut ash::Instance'                                        */
     let debug_callback = unsafe {
         debug_utils_loader

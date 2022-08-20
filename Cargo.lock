@@ -1507,6 +1507,7 @@ dependencies = [
  "bevy_ecs",
  "bevy_log",
  "bevy_window",
+ "raw-window-handle 0.5.0",
 ]
 
 [[package]]
@@ -1518,6 +1519,7 @@ dependencies = [
  "bevy_app",
  "bevy_ecs",
  "bevy_log",
+ "bevy_utils",
  "bevy_window",
  "paracosm_gpu",
 ]
@@ -1669,6 +1671,15 @@ name = "raw-window-handle"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b800beb9b6e7d2df1fe337c9e3d04e3af22a124460fb4c30fcc22c9117cefb41"
+dependencies = [
+ "cty",
+]
+
+[[package]]
+name = "raw-window-handle"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed7e3d950b66e19e0c372f3fa3fbbcf85b1746b571f74e0c2af6042a5c93420a"
 dependencies = [
  "cty",
 ]

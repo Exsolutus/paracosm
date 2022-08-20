@@ -1,8 +1,4 @@
-
-use std::{
-    ffi::CStr,
-    os::raw::c_char,
-};
+use std::{ffi::CStr, os::raw::c_char};
 
 /// Helper function to convert [c_char; SIZE] to string
 pub fn vk_to_string(raw_string_array: &[c_char]) -> String {
