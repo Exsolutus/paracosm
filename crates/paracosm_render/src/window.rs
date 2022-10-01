@@ -1,5 +1,5 @@
 use crate::{Extract, RenderApp, RenderStage};
-use crate::renderer::SyncStructures;
+use crate::raster::Renderer;
 
 use ash::vk;
 use ash::vk::Extent2D;
@@ -9,7 +9,7 @@ use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use bevy_window::{PresentMode, RawWindowHandleWrapper, WindowClosed, WindowId, Windows};
 
-use paracosm_gpu::{Device, Surface};
+use paracosm_gpu::{Surface};
 
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
@@ -45,7 +45,8 @@ pub struct ExtractedWindow {
     pub extent: vk::Extent2D,
     pub present_mode: PresentMode,
     pub swapchain_image_index: Option<u32>,
-    pub resized: bool
+    pub resized: bool,
+    pub configured: bool
 }
 
 #[derive(Default)]
@@ -92,7 +93,8 @@ pub fn extract_windows(
                 extent,
                 present_mode: window.present_mode(),
                 swapchain_image_index: None,
-                resized: false
+                resized: false,
+                configured: false
             });
         
         // Drop active swapchain frame
@@ -122,26 +124,29 @@ pub fn prepare_windows(
     _marker: NonSend<NonSendMarker>,
     mut windows: ResMut<ExtractedWindows>,
     mut window_surfaces: NonSendMut<WindowSurfaces>,
-    device: Res<Device>,
-    sync_structures: Res<SyncStructures>
+    renderer: Res<Renderer>
 ) {
     let window_surfaces = window_surfaces.deref_mut();
     windows.values_mut().for_each(|window| {
         let surface = window_surfaces.surfaces
             .entry(window.id)
             .or_insert_with(|| {
-                match Surface::new(device.clone(), &window.handle) {
+                match Surface::new(renderer.device.clone(), &window.handle) {
                     Ok(result) => result,
                     Err(error) => panic!("{}", error.to_string())
                 }
             });
 
         if window_surfaces.configured_windows.insert(window.id) || window.resized {
-            surface.configure(window.present_mode, window.extent, sync_structures.present_semaphore);
+            surface.configure(window.present_mode, window.extent, renderer.present_semaphore);
+            window.configured = true;
         }
 
         let image_index = match surface.acquire_next_image(1000000000) {
-            Ok(result) => result.0,
+            Ok(result) => {
+                info!("Signaled present semaphore");
+                result.0
+            },
             // Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
             //     self.configure(window, result.present_semaphore);
             //     unsafe { result.swapchain.acquire_next_image(result.handle, timeout, result.present_semaphore, vk::Fence::null()) }

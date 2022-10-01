@@ -1,6 +1,9 @@
 mod extract_param;
-mod renderer;
+mod raster;
 mod window;
+
+use paracosm_gpu::Instance;
+use raster::Renderer;
 
 use crate::window::WindowRenderPlugin;
 
@@ -10,8 +13,6 @@ use bevy_app::{App, AppLabel, Plugin};
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use bevy_utils;
-
-use paracosm_gpu::Instance;
 
 use std::{
     any::TypeId,
@@ -96,9 +97,9 @@ impl Plugin for RenderPlugin {
             Some(result) => result,
             None => return error!("No windows found for application!")
         };
-        let (device, queue, sync_structures) = match renderer::initialize_renderer(instance.clone(), window) {
+        let renderer = match Renderer::new(window, instance.clone()) {
             Ok(result) => result,
-            Err(error) => panic!("Renderer initialization failed: {}", error.to_string()),
+            Err(error) => panic!("Renderer initialization failed: {}", error.to_string())
         };
 
         app.init_resource::<ScratchMainWorld>();
@@ -122,13 +123,11 @@ impl Plugin for RenderPlugin {
             .add_stage(
                 RenderStage::Render, 
                 SystemStage::parallel()
-                    .with_system(renderer::render_system.exclusive_system().at_end())
+                    .with_system(Renderer::render_system.exclusive_system().at_end())
             )
             .add_stage(RenderStage::Cleanup, SystemStage::parallel())
             .insert_resource(instance)
-            .insert_resource(device)
-            .insert_resource(queue)
-            .insert_resource(sync_structures);
+            .insert_resource(renderer);
             
         app.add_sub_app(RenderApp, render_app, move |app_world, render_app| {
             #[cfg(not(feature = "trace"))]

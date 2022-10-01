@@ -21,6 +21,10 @@ pub struct DeviceQueues {
     pub compute_family: u32,
     pub transfer_family: u32,
 
+    pub graphics_count: u32,
+    pub compute_count: u32,
+    pub transfer_count: u32,
+
     pub present_family: Option<u32>
 }
 
@@ -66,6 +70,13 @@ pub struct Device {
 }
 
 impl Device {
+    pub fn graphics_queue(&self, queue_index: u32) -> Result<vk::Queue, String> {
+        match queue_index >= self.queues.graphics_count {
+            true => Err(format!("Queue index out of range; index {}, queue count {}", queue_index, self.queues.graphics_count)),
+            false => unsafe { Ok(self.get_device_queue(self.queues.graphics_family, queue_index)) }
+        }
+    }
+
     pub fn new(
         instance: Instance,
         selector: fn(vk::PhysicalDeviceProperties2) -> bool,
@@ -101,13 +112,16 @@ impl Device {
         // Attempt logical device creation with candidate physical devices
         let result = physical_devices.iter().find_map(|&physical_device| {
             // Check for requested queues
-            let available_queue_families =
-                unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
+            let available_queue_families = unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
 
             let mut queues = DeviceQueues {
                 graphics_family: u32::MAX,
                 compute_family: u32::MAX,
                 transfer_family: u32::MAX,
+
+                graphics_count: 0,
+                compute_count: 0,
+                transfer_count: 0,
 
                 present_family: Some(0)
             };
@@ -167,9 +181,18 @@ impl Device {
                 .filter_map(|(queue_family, priorities)| match priorities.len() > 0 {
                     true => {
                         let index = match queue_family {
-                            QueueFamily::GRAPHICS => queues.graphics_family,
-                            QueueFamily::COMPUTE => queues.compute_family,
-                            QueueFamily::TRANSFER => queues.transfer_family,
+                            QueueFamily::GRAPHICS => {
+                                queues.graphics_count = priorities.len() as u32;
+                                queues.graphics_family
+                            },
+                            QueueFamily::COMPUTE => {
+                                queues.compute_count = priorities.len() as u32;
+                                queues.compute_family
+                            },
+                            QueueFamily::TRANSFER => {
+                                queues.transfer_count = priorities.len() as u32;
+                                queues.transfer_family
+                            },
                         };
                         Some(
                             vk::DeviceQueueCreateInfo::builder()
