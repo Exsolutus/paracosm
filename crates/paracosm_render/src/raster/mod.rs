@@ -157,6 +157,10 @@ impl Renderer {
                         Ok(result) => result,
                         Err(error) => return error!("Renderer::render_system: {}", error)
                     };
+                    let extent = match surface.extent() {
+                        Ok(result) => result,
+                        Err(error) => return error!("Renderer::render_system: {}", error)
+                    };
 
                     // Reset command buffer
                     match unsafe { device.reset_command_buffer(main_command_buffer, vk::CommandBufferResetFlags::empty()) } {
@@ -206,7 +210,7 @@ impl Renderer {
                     let rendering_info = vk::RenderingInfo::builder()
                         .render_area(vk::Rect2D::builder()
                             // Leave offset default
-                            .extent(window.extent)
+                            .extent(extent)
                             .build()
                         )
                         .layer_count(1)
@@ -215,8 +219,19 @@ impl Renderer {
                     unsafe { device.cmd_begin_rendering(main_command_buffer, &rendering_info) };
 
                     // Rendering commands
-                    unsafe { device.cmd_bind_pipeline(main_command_buffer, vk::PipelineBindPoint::GRAPHICS, renderer.raster_pipelines[0].pipeline) };
-                    unsafe { device.cmd_draw(main_command_buffer, 3, 1, 0, 0) };
+                    unsafe {
+                        let viewports = [
+                            vk::Viewport::builder()
+                                .width(extent.width as f32)
+                                .height(extent.height as f32)
+                                .build()
+                        ];
+                        let scissors = [extent.into()];
+                        device.cmd_set_viewport(main_command_buffer, 0, &viewports);
+                        device.cmd_set_scissor(main_command_buffer, 0, &scissors);
+                        device.cmd_bind_pipeline(main_command_buffer, vk::PipelineBindPoint::GRAPHICS, renderer.raster_pipelines[0].pipeline); 
+                        device.cmd_draw(main_command_buffer, 3, 1, 0, 0);
+                    }
 
                     // End rendering
                     unsafe { device.cmd_end_rendering(main_command_buffer) };

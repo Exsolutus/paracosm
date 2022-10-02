@@ -23,10 +23,6 @@ pub struct RasterPipeline {
 
 impl RasterPipeline {
     pub fn new(device: Device, vertex_path: &Path, fragment_path: &Path) -> Result<Self, String> {
-        let extent = Extent2D::builder()
-            .width(1920)
-            .height(1080)
-            .build(); //surface.extent()?;
         let format = vk::Format::B8G8R8A8_UNORM; //surface.format()?;
         
         // Create shader modules
@@ -50,16 +46,16 @@ impl RasterPipeline {
         // Create fixed function infos
         let vertex_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder();
 
-        let viewports = [
-            vk::Viewport::builder()
-                .width(extent.width as f32)
-                .height(extent.height as f32)
-                .build()
-        ];
-        let scissors = [extent.into()];
         let viewport_state_create_info = vk::PipelineViewportStateCreateInfo::builder()
-            .scissors(&scissors)
-            .viewports(&viewports);
+            .scissor_count(1)
+            .viewport_count(1);
+
+        let dynamic_states = [
+            vk::DynamicState::VIEWPORT,
+            vk::DynamicState::SCISSOR
+        ];
+        let dynamic_state_create_info = vk::PipelineDynamicStateCreateInfo::builder()
+            .dynamic_states(&dynamic_states);
 
         let input_assembly_state_create_info = vk::PipelineInputAssemblyStateCreateInfo::builder()
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
@@ -114,6 +110,7 @@ impl RasterPipeline {
             .vertex_input_state(&vertex_input_state_create_info)
             .input_assembly_state(&input_assembly_state_create_info)
             .viewport_state(&viewport_state_create_info)
+            .dynamic_state(&dynamic_state_create_info)
             .rasterization_state(&rasterization_state_create_info)
             .multisample_state(&multisample_state_create_info)
             .color_blend_state(&color_blend_state_create_info)
