@@ -7,7 +7,7 @@ use ash::vk;
 use bevy_log::prelude::*;
 use bevy_window::Window;
 
-use std::{ops::Deref, os::raw::c_char, sync::Arc};
+use std::{ops::Deref, os::raw::c_char, sync::Arc, borrow::BorrowMut};
 
 // TODO: Rework queue info once it's clear how they're used
 pub enum QueueFamily {
@@ -31,7 +31,7 @@ pub struct DeviceQueues {
 pub struct DeviceOptions<'a> {
     window: Option<&'a Window>,
     extensions: &'a [*const c_char],
-    features: &'a vk::PhysicalDeviceFeatures2,
+    features: &'a mut vk::PhysicalDeviceFeatures2,
     queues: [(QueueFamily, &'a [f32]); 3],
 }
 
@@ -70,13 +70,6 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn graphics_queue(&self, queue_index: u32) -> Result<vk::Queue, String> {
-        match queue_index >= self.queues.graphics_count {
-            true => Err(format!("Queue index out of range; index {}, queue count {}", queue_index, self.queues.graphics_count)),
-            false => unsafe { Ok(self.get_device_queue(self.queues.graphics_family, queue_index)) }
-        }
-    }
-
     pub fn new(
         instance: Instance,
         selector: fn(vk::PhysicalDeviceProperties2) -> bool,
@@ -208,7 +201,7 @@ impl Device {
             let create_info = vk::DeviceCreateInfo::builder()
                 .queue_create_infos(queue_create_infos.as_slice())
                 .enabled_extension_names(options.extensions)
-                .enabled_features(&options.features.features);
+                .push_next(options.features);
             //  Safety: vkCreateDevice
             //  In order for the created Device to be valid for the duration of its usage,
             //  the Instance this was called on must be dropped later than the resulting Device.
@@ -238,13 +231,16 @@ impl Device {
     }
 
     pub fn primary(instance: Instance, window: Option<&Window>) -> Result<Self, String> {
+        let mut dynamic_rendering_feature = vk::PhysicalDeviceDynamicRenderingFeatures::builder()
+            .dynamic_rendering(true);
         let options = DeviceOptions {
             window,
             extensions: &[
                 // Enable swapchain extension
                 ash::extensions::khr::Swapchain::name().as_ptr(), //ash::extensions::khr::AccelerationStructure::name().as_ptr()
             ],
-            features: &vk::PhysicalDeviceFeatures2::builder(),
+            features: &mut vk::PhysicalDeviceFeatures2::builder()
+                .push_next(&mut dynamic_rendering_feature),
             queues: [
                 (QueueFamily::GRAPHICS, &[1.0]),
                 (QueueFamily::COMPUTE, &[1.0]),
@@ -269,6 +265,13 @@ impl Device {
             },
             options 
         )
+    }
+
+    pub fn graphics_queue(&self, queue_index: u32) -> Result<vk::Queue, String> {
+        match queue_index >= self.queues.graphics_count {
+            true => Err(format!("Queue index out of range; index {}, queue count {}", queue_index, self.queues.graphics_count)),
+            false => unsafe { Ok(self.get_device_queue(self.queues.graphics_family, queue_index)) }
+        }
     }
 
     #[inline]

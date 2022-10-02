@@ -1,5 +1,6 @@
 mod device;
 mod instance;
+mod raster;
 mod surface;
 mod utils;
 
@@ -13,6 +14,7 @@ use std::{ffi::CStr, ffi::CString};
 // Public API
 pub use device::Device;
 pub use instance::Instance;
+pub use raster::RasterPipeline;
 pub use surface::Surface;
 
 /// Vulkan abstractions exposed as Bevy plugin to provide flexible GPU access

@@ -133,7 +133,7 @@ pub fn prepare_windows(
             .or_insert_with(|| {
                 match Surface::new(renderer.device.clone(), &window.handle) {
                     Ok(result) => result,
-                    Err(error) => panic!("{}", error.to_string())
+                    Err(error) => panic!("prepare_windows: {}", error.to_string())
                 }
             });
 
@@ -143,15 +143,12 @@ pub fn prepare_windows(
         }
 
         let image_index = match surface.acquire_next_image(1000000000) {
-            Ok(result) => {
-                info!("Signaled present semaphore");
-                result.0
-            },
+            Ok(result) => result.0,
             // Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
             //     self.configure(window, result.present_semaphore);
             //     unsafe { result.swapchain.acquire_next_image(result.handle, timeout, result.present_semaphore, vk::Fence::null()) }
             // },
-            Err(error) => return error!("{}", error.to_string())
+            Err(error) => return error!("prepare_windows: {}", error.to_string())
         };
 
         window.swapchain_image_index = Some(image_index);

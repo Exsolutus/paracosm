@@ -25,7 +25,7 @@ pub(self) struct Swapchain {
     _image_format: vk::Format,
     _image_extent: vk::Extent2D,
     _images: Vec<vk::Image>,
-    image_views: Vec<vk::ImageView>,
+    pub image_views: Vec<vk::ImageView>,
 
     present_semaphore: vk::Semaphore
 }
@@ -101,7 +101,7 @@ impl Surface {
         //  Guaranteed by Surface retaining a reference to this Instance
         let surface_handle = match unsafe { ash_window::create_surface(&instance.entry, &instance, &window_handle, None) } {
             Ok(result) => result,
-            Err(error) => return Err(error.to_string())
+            Err(error) => return Err(format!("Surface::new: {}", error.to_string()))
         };
 
         // Select presentation queue for device
@@ -127,19 +127,19 @@ impl Surface {
         // Check swapchain support
         let capabilities = match unsafe { self.surface.get_physical_device_surface_capabilities(self.device.physical_device, self.surface_handle) } {
             Ok(result) => result,
-            Err(error) => panic!("{}", error.to_string())
+            Err(error) => panic!("Surface::configure: {}", error.to_string())
         };
         let formats = match unsafe { self.surface.get_physical_device_surface_formats(self.device.physical_device, self.surface_handle) } {
             Ok(result) => result,
-            Err(error) => panic!("{}", error.to_string())
+            Err(error) => panic!("Surface::configure: {}", error.to_string())
         };
         let present_modes = match unsafe { self.surface.get_physical_device_surface_present_modes(self.device.physical_device, self.surface_handle) } {
             Ok(result) => result,
-            Err(error) => panic!("{}", error.to_string())
+            Err(error) => panic!("Surface::configure: {}", error.to_string())
         };
 
         if formats.is_empty() || present_modes.is_empty() {
-            panic!("{}", "Presentation to this window not supported by this device".to_string())
+            panic!("Surface::configure: {}", "Presentation to this window not supported by this device".to_string())
         }
         
         // Create swapchain
@@ -187,13 +187,13 @@ impl Surface {
         let swapchain = khr::Swapchain::new(&self.device.instance, &self.device);
         let swapchain_handle = match unsafe { swapchain.create_swapchain(create_info, None) } {
             Ok(result) => result,
-            Err(error) => panic!("{}", error.to_string())
+            Err(error) => panic!("Surface::configure: {}", error.to_string())
         };
 
         // Get images and create image views
         let images = match unsafe { swapchain.get_swapchain_images(swapchain_handle) } {
             Ok(result) => result,
-            Err(error) => panic!("{}", error.to_string())
+            Err(error) => panic!("Surface::configure: {}", error.to_string())
         };
         let image_views: Vec<vk::ImageView> = images.iter().map(|image| {
             let create_info = vk::ImageViewCreateInfo::builder()
@@ -212,7 +212,7 @@ impl Surface {
                 );
             unsafe {
                 self.device.create_image_view(&create_info, None)
-                    .expect("Failed to create image view!")
+                    .expect("Surface::configure: Failed to create image view!")
             }
         })
         .collect();
@@ -229,16 +229,66 @@ impl Surface {
         });
     }
 
+    pub fn attachment_info(&self, image_index: u32, clear_value: vk::ClearValue) -> Result<vk::RenderingAttachmentInfo, String> {
+        let swapchain = self.swapchain.borrow();
+        match swapchain.deref() {
+            Some(swapchain) => {
+                let attachment_info = vk::RenderingAttachmentInfo::builder()
+                    .image_view(swapchain.image_views[image_index as usize])
+                    .image_layout(vk::ImageLayout::ATTACHMENT_OPTIMAL)
+                    .load_op(vk::AttachmentLoadOp::CLEAR)
+                    .store_op(vk::AttachmentStoreOp::STORE)
+                    .clear_value(clear_value)
+                    .build();
+
+                Ok(attachment_info)
+            },
+            None => Err("Surface::attachment_info: Surface has no swapchain!".to_string())
+        }
+    }
+
+    pub fn extent(&self) -> Result<vk::Extent2D, String> {
+        let swapchain = self.swapchain.borrow();
+        match swapchain.deref() {
+            Some(result) => {
+                Ok(result._image_extent)
+            },
+            None => Err("Surface::extent: Surface has no swapchain!".to_string())
+        }
+    }
+
+    pub fn format(&self) -> Result<vk::Format, String> {
+        let swapchain = self.swapchain.borrow();
+        match swapchain.deref() {
+            Some(result) => {
+                Ok(result._image_format)
+            },
+            None => Err("Surface::format: Surface has no swapchain!".to_string())
+        }
+    }
+
+    pub fn image(&self, index: u32) -> Result<vk::Image, String> {
+        let swapchain = self.swapchain.borrow();
+        match swapchain.deref() {
+            Some(result) => {
+                Ok(result._images[index as usize])
+            },
+            None => Err("Surface::format: Surface has no swapchain!".to_string())
+        }
+    }
+
+    // Wrap Vulkan methods
+
     pub fn acquire_next_image(&self, timeout: u64) -> Result<(u32, bool), String> {
         let swapchain = self.swapchain.borrow();
         match swapchain.deref() {
             Some(result) => {
                 match unsafe { result.swapchain.acquire_next_image(result.handle, timeout, result.present_semaphore, vk::Fence::null()) } {
                     Ok(result) => Ok(result),
-                    Err(error) => Err(format!("{}", error))
+                    Err(error) => Err(format!("Surface::acquire_next_image: {}", error))
                 }
             },
-            None => Err("Surface has no swapchain!".to_string())
+            None => Err("Surface::acquire_next_image: Surface has no swapchain!".to_string())
         }
     }
 
@@ -252,7 +302,7 @@ impl Surface {
 
             match unsafe { swapchain.queue_present(queue, present_info) } {
                 Ok(result) => return Ok(result),
-                Err(error) => return Err(error.to_string())
+                Err(error) => return Err(format!("Surface::queue_present: {}", error.to_string()))
             };
         }
         
