@@ -297,7 +297,7 @@ impl Surface {
         if let Some(swapchain) = swapchain.deref() {
             let present_info = &vk::PresentInfoKHR::builder()
                 .swapchains(slice::from_ref(&swapchain.handle))
-                .wait_semaphores(slice::from_ref(&swapchain.present_semaphore))
+                .wait_semaphores(slice::from_ref(&swapchain.present_semaphore)) // FIXME: should be render semaphore, not present semaphore
                 .image_indices(image_indices);
 
             match unsafe { swapchain.queue_present(queue, present_info) } {

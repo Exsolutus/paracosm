@@ -5,9 +5,10 @@ use ash::extensions::khr;
 use ash::vk;
 
 use bevy_log::prelude::*;
-use bevy_window::Window;
 
-use std::{ops::Deref, os::raw::c_char, sync::Arc, borrow::BorrowMut};
+use raw_window_handle::HasRawWindowHandle;
+
+use std::{ops::Deref, os::raw::c_char, sync::Arc};
 
 // TODO: Rework queue info once it's clear how they're used
 pub enum QueueFamily {
@@ -29,7 +30,7 @@ pub struct DeviceQueues {
 }
 
 pub struct DeviceOptions<'a> {
-    window: Option<&'a Window>,
+    window_handle: Option<&'a dyn HasRawWindowHandle>,
     extensions: &'a [*const c_char],
     features: &'a mut vk::PhysicalDeviceFeatures2,
     queues: [(QueueFamily, &'a [f32]); 3],
@@ -148,11 +149,11 @@ impl Device {
 
             // Check for presentation support on window, if requested
             // TODO: should consider checking all queue families
-            match options.window {
-                Some(window) => {
-                    let window_handle = unsafe { window.raw_window_handle().get_handle() };
+            match options.window_handle {
+                Some(window_handle) => {
+                    //let window_handle = unsafe { window.raw_window_handle().get_handle() };
                     let surface = khr::Surface::new(&instance.entry, &instance);
-                    let surface_handle = match unsafe { ash_window::create_surface(&instance.entry, &instance, &window_handle, None) } {
+                    let surface_handle = match unsafe { ash_window::create_surface(&instance.entry, &instance, window_handle, None) } {
                         Ok(result) => result,
                         Err(_) => return None
                     };
@@ -230,11 +231,12 @@ impl Device {
         })
     }
 
-    pub fn primary(instance: Instance, window: Option<&Window>) -> Result<Self, String> {
+    pub fn primary(instance: Instance, window_handle: Option<&dyn HasRawWindowHandle>) -> Result<Self, String> {
         let mut dynamic_rendering_feature = vk::PhysicalDeviceDynamicRenderingFeatures::builder()
             .dynamic_rendering(true);
+
         let options = DeviceOptions {
-            window,
+            window_handle,
             extensions: &[
                 // Enable swapchain extension
                 ash::extensions::khr::Swapchain::name().as_ptr(), //ash::extensions::khr::AccelerationStructure::name().as_ptr()

@@ -37,7 +37,8 @@ impl Renderer {
         instance: Instance
     ) -> Result<Self, String> {
         // Create Device
-        let device = match Device::primary(instance.clone(), Some(window)) {
+        let window_handle = unsafe { window.raw_window_handle().get_handle() };
+        let device = match Device::primary(instance.clone(), Some(&window_handle)) {
             Ok(result) => result,
             Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string())),
         };
@@ -55,8 +56,7 @@ impl Renderer {
             Ok(result) => result,
             Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string()))
         };
-        let create_info = vk::SemaphoreCreateInfo::builder()
-            .flags(vk::SemaphoreCreateFlags::empty());
+        let create_info = vk::SemaphoreCreateInfo::builder();
         let render_semaphore = match unsafe { device.create_semaphore(&create_info, None) } {
             Ok(result) => result,
             Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string()))
@@ -139,7 +139,7 @@ impl Renderer {
     
             // Render for each active window surface
             let windows = world.resource::<ExtractedWindows>();
-            for (id, window) in windows.iter() {
+            for (_id, window) in windows.iter() {
                 // Check window is configured
                 if !window.configured {
                     continue;
