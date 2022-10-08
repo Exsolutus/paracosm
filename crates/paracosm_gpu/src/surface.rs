@@ -27,7 +27,8 @@ pub(self) struct Swapchain {
     _images: Vec<vk::Image>,
     pub image_views: Vec<vk::ImageView>,
 
-    present_semaphore: vk::Semaphore
+    present_semaphore: vk::Semaphore,
+    render_semaphore: vk::Semaphore
 }
 
 impl Deref for Swapchain {
@@ -120,7 +121,7 @@ impl Surface {
     }
 
     // TODO: refactor to more elegantly handle errors
-    pub fn configure(&self, present_mode: PresentMode, extent: vk::Extent2D, present_semaphore: vk::Semaphore) {
+    pub fn configure(&self, present_mode: PresentMode, extent: vk::Extent2D, present_semaphore: vk::Semaphore, render_semaphore: vk::Semaphore) {
         // Drop any existing swapchain
         self.swapchain.replace(None);
 
@@ -225,7 +226,8 @@ impl Surface {
             _image_extent: surface_extent,
             _images: images,
             image_views,
-            present_semaphore
+            present_semaphore,
+            render_semaphore
         });
     }
 
@@ -297,7 +299,7 @@ impl Surface {
         if let Some(swapchain) = swapchain.deref() {
             let present_info = &vk::PresentInfoKHR::builder()
                 .swapchains(slice::from_ref(&swapchain.handle))
-                .wait_semaphores(slice::from_ref(&swapchain.present_semaphore)) // FIXME: should be render semaphore, not present semaphore
+                .wait_semaphores(slice::from_ref(&swapchain.render_semaphore))
                 .image_indices(image_indices);
 
             match unsafe { swapchain.queue_present(queue, present_info) } {

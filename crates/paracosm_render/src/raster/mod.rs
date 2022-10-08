@@ -25,7 +25,7 @@ pub struct Renderer {
     graphics_command_buffer: vk::CommandBuffer,
 
     render_fence: vk::Fence,
-    render_semaphore: vk::Semaphore,
+    pub render_semaphore: vk::Semaphore,
     pub present_semaphore: vk::Semaphore,
 
     raster_pipelines: Vec<RasterPipeline>
