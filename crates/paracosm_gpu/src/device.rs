@@ -64,7 +64,7 @@ impl Drop for DeviceInternal {
     }
 }
 
-/// Public API for interacting with the Vulkan instance.
+/// Public API for interacting with the Vulkan device.
 #[derive(Clone)]
 pub struct Device {
     internal: Arc<DeviceInternal>,

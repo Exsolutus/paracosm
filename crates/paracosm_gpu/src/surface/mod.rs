@@ -1,3 +1,9 @@
+mod swapchain;
+mod frame_data;
+
+use swapchain::Swapchain;
+use frame_data::FrameData;
+
 use super::Device;
 
 use ash::extensions::khr;
@@ -8,81 +14,27 @@ use bevy_window::{PresentMode, RawWindowHandleWrapper};
 
 use std::{
     cell::RefCell,
-    ops::Deref, 
-    rc::Rc,
+    ops::Deref,
     slice,
     string::String
 };
 
-// TODO: cleanup supporting structs, possibly split files
 
-pub(self) struct Swapchain {
-    device: Device,
-
-    pub swapchain: khr::Swapchain,
-    handle: vk::SwapchainKHR,
-
-    _image_format: vk::Format,
-    _image_extent: vk::Extent2D,
-    _images: Vec<vk::Image>,
-    pub image_views: Vec<vk::ImageView>,
-
-    present_semaphore: vk::Semaphore,
-    render_semaphore: vk::Semaphore
-}
-
-impl Deref for Swapchain {
-    type Target = khr::Swapchain;
-
-    fn deref(&self) -> &Self::Target {
-        &self.swapchain
-    }
-}
-
-impl Drop for Swapchain {
-    fn drop(&mut self) {
-        info!("Dropping Swapchain!");
-
-        unsafe {
-            let _ = self.device.device_wait_idle();
-
-            self.image_views.iter().for_each(|image_view| {
-                self.device.destroy_image_view(*image_view, None)
-            });
-            self.destroy_swapchain(self.handle, None);
-        }
-    }
-}
 
 /// Internal data for the Vulkan surface.
 ///
 /// [`Surface`] is the public API for interacting with the Vulkan surface.
-pub struct SurfaceInternal {
-    pub device: Device,
+pub struct Surface {
+    device: Device,
     _present_queue_index: u32,
 
     surface: khr::Surface,
     surface_handle: vk::SurfaceKHR,
 
     swapchain: RefCell<Option<Swapchain>>,
-}
 
-impl Drop for SurfaceInternal {
-    fn drop(&mut self) {
-        // First drop any active swapchain
-        let _ = self.swapchain.replace(None);
-
-        info!("Dropping Surface!");
-        unsafe {
-            self.surface.destroy_surface(self.surface_handle, None);
-        }
-    }
-}
-
-/// Public API for interacting with the Vulkan instance.
-pub struct Surface {
-    // Not Arc because surface should only be used on main thread
-    internal: Rc<SurfaceInternal>,
+    frame_number: usize,
+    frame_data: [FrameData; 2],
 }
 
 impl Surface {
@@ -108,20 +60,25 @@ impl Surface {
         // Select presentation queue for device
         // TODO: evaluate all queues and select best
         let present_queue_index = device.queues.graphics_family;
+        
+        let frame_data = [
+            FrameData::new(device.clone())?,
+            FrameData::new(device.clone())?
+        ];
 
         Ok(Self {
-            internal: Rc::new(SurfaceInternal {
-                device,
-                _present_queue_index: present_queue_index,
-                surface,
-                surface_handle,
-                swapchain: RefCell::new(None),
-            })
+            device,
+            _present_queue_index: present_queue_index,
+            surface,
+            surface_handle,
+            swapchain: RefCell::new(None),
+            frame_number: 0,
+            frame_data
         })
     }
 
     // TODO: refactor to more elegantly handle errors
-    pub fn configure(&self, present_mode: PresentMode, extent: vk::Extent2D, present_semaphore: vk::Semaphore, render_semaphore: vk::Semaphore) {
+    pub fn configure(&self, present_mode: PresentMode, extent: vk::Extent2D) {
         // Drop any existing swapchain
         self.swapchain.replace(None);
 
@@ -143,7 +100,7 @@ impl Surface {
             panic!("Surface::configure: {}", "Presentation to this window not supported by this device".to_string())
         }
         
-        // Create swapchain
+        // Get swapchain parameters
         let selected_format = *formats.iter().find(|format| {
             match (format.format, format.color_space) {
                 (vk::Format::R8G8B8A8_SRGB, vk::ColorSpaceKHR::SRGB_NONLINEAR) => true,
@@ -165,70 +122,17 @@ impl Surface {
             u32::MAX => extent,
             _ => capabilities.current_extent
         };
-
         let image_count = match capabilities.max_image_count > 0 && capabilities.max_image_count < capabilities.min_image_count + 1 {
             true => capabilities.max_image_count,
             false => capabilities.min_image_count + 1
         };
 
-        let create_info = &vk::SwapchainCreateInfoKHR::builder()
-            .surface(self.surface_handle)
-            .min_image_count(image_count)
-            .image_format(selected_format.format)
-            .image_color_space(selected_format.color_space)
-            .image_extent(surface_extent)
-            .image_array_layers(1)
-            .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
-            .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .pre_transform(capabilities.current_transform)
-            .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-            .present_mode(present_mode)
-            .clipped(true);
-
-        let swapchain = khr::Swapchain::new(&self.device.instance, &self.device);
-        let swapchain_handle = match unsafe { swapchain.create_swapchain(create_info, None) } {
+        // Create swapchain
+        let swapchain = match Swapchain::new(self.device.clone(), self.surface_handle, selected_format, present_mode, surface_extent, capabilities.current_transform, image_count) {
             Ok(result) => result,
             Err(error) => panic!("Surface::configure: {}", error.to_string())
         };
-
-        // Get images and create image views
-        let images = match unsafe { swapchain.get_swapchain_images(swapchain_handle) } {
-            Ok(result) => result,
-            Err(error) => panic!("Surface::configure: {}", error.to_string())
-        };
-        let image_views: Vec<vk::ImageView> = images.iter().map(|image| {
-            let create_info = vk::ImageViewCreateInfo::builder()
-                .image(*image)
-                .view_type(vk::ImageViewType::TYPE_2D)
-                .format(selected_format.format)
-                // default components
-                .subresource_range(
-                    vk::ImageSubresourceRange::builder()
-                        .aspect_mask(vk::ImageAspectFlags::COLOR)
-                        .base_mip_level(0)
-                        .level_count(1)
-                        .base_array_layer(0)
-                        .layer_count(1)
-                        .build()
-                );
-            unsafe {
-                self.device.create_image_view(&create_info, None)
-                    .expect("Surface::configure: Failed to create image view!")
-            }
-        })
-        .collect();
-
-        let _ = self.internal.swapchain.borrow_mut().insert(Swapchain {
-            device: self.device.clone(),
-            swapchain,
-            handle: swapchain_handle,
-            _image_format: selected_format.format,
-            _image_extent: surface_extent,
-            _images: images,
-            image_views,
-            present_semaphore,
-            render_semaphore
-        });
+        self.swapchain.replace(Some(swapchain));
     }
 
     pub fn attachment_info(&self, image_index: u32, clear_value: vk::ClearValue) -> Result<vk::RenderingAttachmentInfo, String> {
@@ -253,7 +157,7 @@ impl Surface {
         let swapchain = self.swapchain.borrow();
         match swapchain.deref() {
             Some(result) => {
-                Ok(result._image_extent)
+                Ok(result.image_extent)
             },
             None => Err("Surface::extent: Surface has no swapchain!".to_string())
         }
@@ -263,7 +167,7 @@ impl Surface {
         let swapchain = self.swapchain.borrow();
         match swapchain.deref() {
             Some(result) => {
-                Ok(result._image_format)
+                Ok(result.image_format)
             },
             None => Err("Surface::format: Surface has no swapchain!".to_string())
         }
@@ -273,10 +177,14 @@ impl Surface {
         let swapchain = self.swapchain.borrow();
         match swapchain.deref() {
             Some(result) => {
-                Ok(result._images[index as usize])
+                Ok(result.images[index as usize])
             },
             None => Err("Surface::format: Surface has no swapchain!".to_string())
         }
+    }
+
+    pub fn frame_data(&self) -> &FrameData {
+        &self.frame_data[self.frame_number]
     }
 
     // Wrap Vulkan methods
@@ -285,7 +193,9 @@ impl Surface {
         let swapchain = self.swapchain.borrow();
         match swapchain.deref() {
             Some(result) => {
-                match unsafe { result.swapchain.acquire_next_image(result.handle, timeout, result.present_semaphore, vk::Fence::null()) } {
+                let frame_data = &self.frame_data[self.frame_number];
+
+                match unsafe { result.swapchain.acquire_next_image(result.handle, timeout, frame_data.present_semaphore, vk::Fence::null()) } {
                     Ok(result) => Ok(result),
                     Err(error) => Err(format!("Surface::acquire_next_image: {}", error))
                 }
@@ -294,12 +204,16 @@ impl Surface {
         }
     }
 
-    pub fn queue_present(&self, queue: vk::Queue, image_indices: &[u32]) -> Result<bool, String> {
+    pub fn queue_present(&mut self, queue: vk::Queue, image_indices: &[u32]) -> Result<bool, String> {
+        let frame_data = &self.frame_data[self.frame_number];
+        self.frame_number = (self.frame_number + 1) % 2;
+
         let swapchain = self.swapchain.borrow();
         if let Some(swapchain) = swapchain.deref() {
+
             let present_info = &vk::PresentInfoKHR::builder()
                 .swapchains(slice::from_ref(&swapchain.handle))
-                .wait_semaphores(slice::from_ref(&swapchain.render_semaphore))
+                .wait_semaphores(slice::from_ref(&frame_data.render_semaphore))
                 .image_indices(image_indices);
 
             match unsafe { swapchain.queue_present(queue, present_info) } {
@@ -310,24 +224,18 @@ impl Surface {
         
         Ok(false)
     }
-
-    #[inline]
-    pub fn strong_count(&self) -> usize {
-        Rc::strong_count(&self.internal)
-    }
-}
-
-impl Deref for Surface {
-    type Target = SurfaceInternal;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.internal
-    }
 }
 
 impl Drop for Surface {
     fn drop(&mut self) {
-        info!("Dropping ref to Surface!");
+        // First drop any active swapchain
+        let _ = self.swapchain.replace(None);
+
+        info!("Dropping Surface!");
+        unsafe {
+            self.surface.destroy_surface(self.surface_handle, None);
+        }
     }
 }
+
+

@@ -2,7 +2,7 @@ use crate::window::{ExtractedWindows, WindowSurfaces};
 
 use ash::vk;
 
-use bevy_ecs::world::World;
+use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use bevy_window::Window;
 
@@ -21,12 +21,6 @@ pub struct Renderer {
     pub device: Device,
 
     graphics_queue: vk::Queue,
-    graphics_command_pool: vk::CommandPool,
-    graphics_command_buffer: vk::CommandBuffer,
-
-    render_fence: vk::Fence,
-    pub render_semaphore: vk::Semaphore,
-    pub present_semaphore: vk::Semaphore,
 
     raster_pipelines: Vec<RasterPipeline>
 }
@@ -48,42 +42,6 @@ impl Renderer {
             Ok(result) => result,
             Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string()))
         };
-        
-        // Create sync structures
-        let create_info = vk::FenceCreateInfo::builder()
-            .flags(vk::FenceCreateFlags::SIGNALED);
-        let render_fence = match unsafe { device.create_fence(&create_info, None) } {
-            Ok(result) => result,
-            Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string()))
-        };
-        let create_info = vk::SemaphoreCreateInfo::builder();
-        let render_semaphore = match unsafe { device.create_semaphore(&create_info, None) } {
-            Ok(result) => result,
-            Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string()))
-        };
-        let present_semaphore = match unsafe { device.create_semaphore(&create_info, None) } {
-            Ok(result) => result,
-            Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string()))
-        };
-
-        // Create graphics command pool
-        let create_info = vk::CommandPoolCreateInfo::builder()
-            .queue_family_index(device.queues.graphics_family)
-            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
-        let graphics_command_pool = match unsafe { device.create_command_pool(&create_info, None) } {
-            Ok(result) => result,
-            Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string()))
-        };
-
-        // Create graphics command buffer
-        let alloc_info = vk::CommandBufferAllocateInfo::builder()
-            .command_pool(graphics_command_pool)
-            .command_buffer_count(1)
-            .level(vk::CommandBufferLevel::PRIMARY);
-        let graphics_command_buffer = match unsafe { device.allocate_command_buffers(&alloc_info) } {
-            Ok(result) => result[0],
-            Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string()))
-        };
 
         // Create triangle pipeline
         let vertex_spv_path = Path::new("./shaders/colored_triangle_vert.spv");
@@ -94,25 +52,19 @@ impl Renderer {
         };
     
         Ok(Self {
-            //window,
             _instance: instance,
             device,
             graphics_queue,
-            graphics_command_pool,
-            graphics_command_buffer,
-            render_fence,
-            render_semaphore,
-            present_semaphore,
             raster_pipelines: vec![triangle_pipeline]
         })
     }
 
-    pub fn render_system(world: &mut World) {
-        let renderer = world.resource::<Self>();
-        let window_surfaces = world.non_send_resource::<WindowSurfaces>();
-
+    pub fn render_system(
+        renderer: Res<Renderer>,
+        windows: Res<ExtractedWindows>,
+        mut window_surfaces: NonSendMut<WindowSurfaces>
+    ) {
         let device = &renderer.device;
-        let main_command_buffer = renderer.graphics_command_buffer;
     
         {
             //let _span = info_span!("present_frames").entered();
@@ -127,18 +79,8 @@ impl Renderer {
             //     world.entity_mut(view_entity).remove::<ViewTarget>();
             // }
     
-            // Wait for GPU to finish rendering previous frame
-            match unsafe { device.wait_for_fences(slice::from_ref(&renderer.render_fence), true, 1000000000) } {
-                Err(error) => return error!("Renderer::render_system: {}", error),
-                _ => ()
-            };
-            match unsafe { device.reset_fences(&[renderer.render_fence]) } {
-                Err(error) => return error!("Renderer::render_system: {}", error),
-                _ => ()
-            };
-    
             // Render for each active window surface
-            let windows = world.resource::<ExtractedWindows>();
+
             for (_id, window) in windows.iter() {
                 // Check window is configured
                 if !window.configured {
@@ -146,9 +88,22 @@ impl Renderer {
                 }
 
                 // Get surface for window
-                let surface: &Surface = match window_surfaces.surfaces.get(&window.id) {
+                let surface: &mut Surface = match window_surfaces.surfaces.get_mut(&window.id) {
                     Some(result) => result,
                     None => continue
+                };
+
+                // Get frame data for surface
+                let frame_data = surface.frame_data();
+
+                // Wait for GPU to finish rendering previous frame
+                match unsafe { device.wait_for_fences(slice::from_ref(&frame_data.render_fence), true, 1000000000) } {
+                    Err(error) => return error!("Renderer::render_system: {}", error),
+                    _ => ()
+                };
+                match unsafe { device.reset_fences(&[frame_data.render_fence]) } {
+                    Err(error) => return error!("Renderer::render_system: {}", error),
+                    _ => ()
                 };
 
                 if let Some(image_index) = window.swapchain_image_index {
@@ -163,7 +118,7 @@ impl Renderer {
                     };
 
                     // Reset command buffer
-                    match unsafe { device.reset_command_buffer(main_command_buffer, vk::CommandBufferResetFlags::empty()) } {
+                    match unsafe { device.reset_command_buffer(frame_data.command_buffer, vk::CommandBufferResetFlags::empty()) } {
                         Err(error) => return error!("Renderer::render_system: {}", error),
                         _ => ()
                     };
@@ -171,7 +126,7 @@ impl Renderer {
                     // Record commands
                     let begin_info = vk::CommandBufferBeginInfo::builder()
                         .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-                    match unsafe { device.begin_command_buffer(main_command_buffer, &begin_info) } {
+                    match unsafe { device.begin_command_buffer(frame_data.command_buffer, &begin_info) } {
                         Err(error) => return error!("Renderer::render_system: {}", error),
                         _ => ()
                     };
@@ -192,7 +147,7 @@ impl Renderer {
                                 .build()
                         );
                     unsafe { device.cmd_pipeline_barrier(
-                        main_command_buffer, 
+                        frame_data.command_buffer, 
                         vk::PipelineStageFlags::TOP_OF_PIPE, 
                         vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, 
                         vk::DependencyFlags::empty(), &[], &[], 
@@ -216,7 +171,7 @@ impl Renderer {
                         .layer_count(1)
                         .color_attachments(slice::from_ref(&attachment_info));
 
-                    unsafe { device.cmd_begin_rendering(main_command_buffer, &rendering_info) };
+                    unsafe { device.cmd_begin_rendering(frame_data.command_buffer, &rendering_info) };
 
                     // Rendering commands
                     unsafe {
@@ -227,14 +182,14 @@ impl Renderer {
                                 .build()
                         ];
                         let scissors = [extent.into()];
-                        device.cmd_set_viewport(main_command_buffer, 0, &viewports);
-                        device.cmd_set_scissor(main_command_buffer, 0, &scissors);
-                        device.cmd_bind_pipeline(main_command_buffer, vk::PipelineBindPoint::GRAPHICS, renderer.raster_pipelines[0].pipeline); 
-                        device.cmd_draw(main_command_buffer, 3, 1, 0, 0);
+                        device.cmd_set_viewport(frame_data.command_buffer, 0, &viewports);
+                        device.cmd_set_scissor(frame_data.command_buffer, 0, &scissors);
+                        device.cmd_bind_pipeline(frame_data.command_buffer, vk::PipelineBindPoint::GRAPHICS, renderer.raster_pipelines[0].pipeline); 
+                        device.cmd_draw(frame_data.command_buffer, 3, 1, 0, 0);
                     }
 
                     // End rendering
-                    unsafe { device.cmd_end_rendering(main_command_buffer) };
+                    unsafe { device.cmd_end_rendering(frame_data.command_buffer) };
 
                     // Image Layout to Present Optimal
                     let image_memory_barrier = vk::ImageMemoryBarrier::builder()
@@ -252,7 +207,7 @@ impl Renderer {
                                 .build()
                         );
                     unsafe { device.cmd_pipeline_barrier(
-                        main_command_buffer, 
+                        frame_data.command_buffer, 
                         vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, 
                         vk::PipelineStageFlags::BOTTOM_OF_PIPE, 
                         vk::DependencyFlags::empty(), &[], &[], 
@@ -260,7 +215,7 @@ impl Renderer {
                     ) };
 
                     // End recording commands
-                    match unsafe { device.end_command_buffer(main_command_buffer) } {
+                    match unsafe { device.end_command_buffer(frame_data.command_buffer) } {
                         Err(error) => return error!("Renderer::render_system: {}", error),
                         _ => ()
                     };
@@ -268,11 +223,11 @@ impl Renderer {
                     // Submit command buffer
                     let submit_info = vk::SubmitInfo::builder()
                         .wait_dst_stage_mask(slice::from_ref(&vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT))
-                        .wait_semaphores(slice::from_ref(&renderer.present_semaphore))
-                        .signal_semaphores(slice::from_ref(&renderer.render_semaphore))
-                        .command_buffers(slice::from_ref(&main_command_buffer))
+                        .wait_semaphores(slice::from_ref(&frame_data.present_semaphore))
+                        .signal_semaphores(slice::from_ref(&frame_data.render_semaphore))
+                        .command_buffers(slice::from_ref(&frame_data.command_buffer))
                         .build();
-                    match unsafe { device.queue_submit(renderer.graphics_queue, slice::from_ref(&submit_info), renderer.render_fence) } {
+                    match unsafe { device.queue_submit(renderer.graphics_queue, slice::from_ref(&submit_info), frame_data.render_fence) } {
                         Err(error) => return error!("Renderer::render_system: {}", error),
                         _ => ()
                     };
@@ -288,16 +243,3 @@ impl Renderer {
     }
 }
 
-impl Drop for Renderer {
-    fn drop(&mut self) {
-        unsafe {
-            self.device.device_wait_idle().unwrap();
-
-            self.device.destroy_command_pool(self.graphics_command_pool, None);
-
-            self.device.destroy_semaphore(self.present_semaphore, None);
-            self.device.destroy_semaphore(self.render_semaphore, None);
-            self.device.destroy_fence(self.render_fence, None);
-        }
-    }
-}

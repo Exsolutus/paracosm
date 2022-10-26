@@ -138,7 +138,7 @@ pub fn prepare_windows(
             });
 
         if window_surfaces.configured_windows.insert(window.id) || window.resized {
-            surface.configure(window.present_mode, window.extent, renderer.present_semaphore, renderer.render_semaphore);
+            surface.configure(window.present_mode, window.extent);
             window.configured = true;
         }
 

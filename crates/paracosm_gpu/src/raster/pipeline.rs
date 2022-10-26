@@ -154,6 +154,8 @@ impl RasterPipeline {
 impl Drop for RasterPipeline {
     fn drop(&mut self) {
         unsafe {
+            self.device.device_wait_idle().unwrap();
+            
             self.device.destroy_pipeline(self.pipeline, None);
             self.device.destroy_pipeline_layout(self.pipeline_layout, None);
             self.device.destroy_shader_module(self.shader_modules[0], None);
