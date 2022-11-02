@@ -32,6 +32,7 @@ pub struct Surface {
     surface_handle: vk::SurfaceKHR,
 
     swapchain: RefCell<Option<Swapchain>>,
+    pub swapchain_semaphore: vk::Semaphore,
 
     frame_number: usize,
     frame_data: [FrameData; 2],
@@ -41,9 +42,13 @@ impl Surface {
     pub fn new(
         device: Device,
         window_handle: &RawWindowHandleWrapper
-    ) -> Result<Self, String> {
+    ) -> Self {
         let instance = &device.instance;
         let window_handle = unsafe { window_handle.get_handle() };
+
+        // Select presentation queue for device
+        // TODO: evaluate all queues and select best
+        let present_queue_index = device.queues.graphics_family;
 
         // Create surface from window
         let surface = khr::Surface::new(&instance.entry, &instance);
@@ -52,29 +57,34 @@ impl Surface {
         //  the Instance this was called on must be dropped later than the resulting vk::SurfaceKHR.
         //
         //  Guaranteed by Surface retaining a reference to this Instance
-        let surface_handle = match unsafe { ash_window::create_surface(&instance.entry, &instance, &window_handle, None) } {
-            Ok(result) => result,
-            Err(error) => return Err(format!("Surface::new: {}", error.to_string()))
+        let surface_handle = unsafe { 
+            ash_window::create_surface(&instance.entry, &instance, &window_handle, None)
+                .expect("Surface::new: Surface creation failed")
         };
 
-        // Select presentation queue for device
-        // TODO: evaluate all queues and select best
-        let present_queue_index = device.queues.graphics_family;
+        // Create semaphore to sync swapchain image acquisition
+        let create_info = vk::SemaphoreCreateInfo::builder();
+        let swapchain_semaphore = match unsafe { device.create_semaphore(&create_info, None) } {
+            Ok(result) => result,
+            Err(error) => panic!("Surface::new: {}", error.to_string())
+        };
         
+        // Create frame data for handling frames-in-flight
         let frame_data = [
-            FrameData::new(device.clone())?,
-            FrameData::new(device.clone())?
+            FrameData::new(device.clone()).expect("Surface::new: FrameData creation failed"),
+            FrameData::new(device.clone()).expect("Surface::new: FrameData creation failed")
         ];
 
-        Ok(Self {
+        Self {
             device,
             _present_queue_index: present_queue_index,
             surface,
             surface_handle,
             swapchain: RefCell::new(None),
+            swapchain_semaphore,
             frame_number: 0,
             frame_data
-        })
+        }
     }
 
     // TODO: refactor to more elegantly handle errors
@@ -193,9 +203,7 @@ impl Surface {
         let swapchain = self.swapchain.borrow();
         match swapchain.deref() {
             Some(result) => {
-                let frame_data = &self.frame_data[self.frame_number];
-
-                match unsafe { result.swapchain.acquire_next_image(result.handle, timeout, frame_data.present_semaphore, vk::Fence::null()) } {
+                match unsafe { result.swapchain.acquire_next_image(result.handle, timeout, self.swapchain_semaphore, vk::Fence::null()) } {
                     Ok(result) => Ok(result),
                     Err(error) => Err(format!("Surface::acquire_next_image: {}", error))
                 }
@@ -233,6 +241,10 @@ impl Drop for Surface {
 
         info!("Dropping Surface!");
         unsafe {
+            self.device.device_wait_idle().unwrap();
+            
+            self.device.destroy_semaphore(self.swapchain_semaphore, None);
+
             self.surface.destroy_surface(self.surface_handle, None);
         }
     }
