@@ -1,6 +1,5 @@
 mod device;
 mod instance;
-mod mesh;
 mod raster;
 mod resource;
 mod surface;
