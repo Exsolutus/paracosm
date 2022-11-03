@@ -1,5 +1,4 @@
 use crate::{Extract, RenderApp, RenderStage};
-use crate::raster::Renderer;
 
 use ash::vk;
 use ash::vk::Extent2D;
@@ -9,7 +8,7 @@ use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use bevy_window::{PresentMode, RawWindowHandleWrapper, WindowClosed, WindowId, Windows};
 
-use paracosm_gpu::{Surface};
+use paracosm_gpu::{Device, Surface};
 
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
@@ -38,6 +37,7 @@ impl Plugin for WindowRenderPlugin {
     }
 }
 
+// Window Structures
 
 pub struct ExtractedWindow {
     pub id: WindowId,
@@ -73,6 +73,8 @@ pub struct WindowSurfaces {
     pub surfaces: HashMap<WindowId, Surface>,
     configured_windows: HashSet<WindowId>
 }
+
+// Window Systems
 
 pub fn extract_windows(
     mut extracted_windows: ResMut<ExtractedWindows>,
@@ -120,24 +122,25 @@ pub fn extract_windows(
     });
 }
 
+/// Creates and (re)configures window surfaces, and obtains a swapchain image index for rendering.
 pub fn prepare_windows(
+    // By accessing a NonSend resource, we tell the scheduler to put this system on the main thread,
+    // which is necessary for some OS s
     _marker: NonSend<NonSendMarker>,
     mut windows: ResMut<ExtractedWindows>,
     mut window_surfaces: NonSendMut<WindowSurfaces>,
-    renderer: Res<Renderer>
+    device: Res<Device>
 ) {
     let window_surfaces = window_surfaces.deref_mut();
     windows.values_mut().for_each(|window| {
         let surface = window_surfaces.surfaces
             .entry(window.id)
             .or_insert_with(|| {
-                match Surface::new(renderer.device.clone(), &window.handle) {
-                    Ok(result) => result,
-                    Err(error) => panic!("prepare_windows: {}", error.to_string())
-                }
+                Surface::new(device.clone(), &window.handle)
             });
 
-        if window_surfaces.configured_windows.insert(window.id) || window.resized {
+        // (Re)Configure surface if needed
+        if window.resized || window_surfaces.configured_windows.insert(window.id) {
             surface.configure(window.present_mode, window.extent);
             window.configured = true;
         }

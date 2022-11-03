@@ -2,8 +2,9 @@ mod extract_param;
 mod raster;
 mod window;
 
-use paracosm_gpu::Instance;
-use raster::Renderer;
+use raster::*;
+
+use paracosm_gpu::{Instance, RasterPipeline};
 
 use crate::window::WindowRenderPlugin;
 
@@ -17,6 +18,7 @@ use bevy_utils;
 use std::{
     any::TypeId,
     ops::{Deref, DerefMut},
+    path::Path,
 };
 
 // TODO: make sure you understand the usage of this main world
@@ -97,9 +99,18 @@ impl Plugin for RenderPlugin {
             Some(result) => result,
             None => return error!("No windows found for application!")
         };
-        let renderer = match Renderer::new(window, instance.clone()) {
+        let (device, queue, allocator) = match initialize_renderer(window, instance.clone()) {
             Ok(result) => result,
             Err(error) => panic!("Renderer initialization failed: {}", error.to_string())
+        };
+
+        // TODO: add proper pipeline management
+        // Create triangle pipeline
+        let vertex_spv_path = Path::new("./shaders/colored_triangle_vert.spv");
+        let fragment_spv_path = Path::new("./shaders/colored_triangle_frag.spv");
+        let triangle_pipeline = match RasterPipeline::new(device.clone(), vertex_spv_path, fragment_spv_path) {
+            Ok(result) => result,
+            Err(error) => panic!("Renderer::render_system: {}", error.to_string())
         };
 
         app.init_resource::<ScratchMainWorld>();
@@ -123,11 +134,14 @@ impl Plugin for RenderPlugin {
             .add_stage(
                 RenderStage::Render, 
                 SystemStage::parallel()
-                    .with_system(Renderer::render_system.exclusive_system().at_end())
+                    .with_system(render_system.exclusive_system().at_end())
             )
             .add_stage(RenderStage::Cleanup, SystemStage::parallel())
             .insert_resource(instance)
-            .insert_resource(renderer);
+            .insert_resource(device)
+            .insert_resource(queue)
+            .insert_resource(allocator)
+            .insert_resource(triangle_pipeline);
             
         app.add_sub_app(RenderApp, render_app, move |app_world, render_app| {
             #[cfg(not(feature = "trace"))]
