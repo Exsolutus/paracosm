@@ -6,11 +6,12 @@ use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use bevy_window::Window;
 
-use paracosm_gpu::{Allocator, Instance, Device, Surface, RasterPipeline};
+use paracosm_gpu::{instance::Instance, device::Device, surface::Surface, raster::RasterPipeline, mesh::Mesh};
 
 use std::slice;
 
-type RendererData = (Device, vk::Queue, Allocator);
+// Types initialized by renderer
+type RendererData = (Device, vk::Queue);
 
 pub fn initialize_renderer(
     window: &Window,
@@ -29,16 +30,15 @@ pub fn initialize_renderer(
         Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string()))
     };
 
-    // Create memory allocator
-    let allocator = Allocator::new(device.clone());
-
-    Ok((device, graphics_queue, allocator))
+    Ok((device, graphics_queue))
 }
 
+// Renderer main loop
 pub fn render_system(
     device: Res<Device>,
     queue: Res<vk::Queue>,
     pipeline: Res<RasterPipeline>,
+    mesh: Res<Mesh>,
     windows: Res<ExtractedWindows>,
     mut window_surfaces: NonSendMut<WindowSurfaces>
 ) {
@@ -160,7 +160,8 @@ pub fn render_system(
                     let scissors = [extent.into()];
                     device.cmd_set_viewport(frame_data.command_buffer, 0, &viewports);
                     device.cmd_set_scissor(frame_data.command_buffer, 0, &scissors);
-                    device.cmd_bind_pipeline(frame_data.command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline); 
+                    device.cmd_bind_pipeline(frame_data.command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline);
+                    device.cmd_bind_vertex_buffers(frame_data.command_buffer, 0, slice::from_ref(mesh.vertex_buffer()), &[0]);
                     device.cmd_draw(frame_data.command_buffer, 3, 1, 0, 0);
                 }
 

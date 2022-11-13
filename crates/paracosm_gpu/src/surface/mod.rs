@@ -4,7 +4,7 @@ mod frame_data;
 use swapchain::Swapchain;
 use frame_data::FrameData;
 
-use super::Device;
+use crate::device::Device;
 
 use ash::extensions::khr;
 use ash::vk;

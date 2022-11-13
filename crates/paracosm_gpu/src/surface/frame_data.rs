@@ -1,4 +1,4 @@
-use super::Device;
+use crate::device::Device;
 
 use ash::vk;
 

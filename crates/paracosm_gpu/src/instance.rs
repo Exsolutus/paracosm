@@ -13,7 +13,7 @@ use std::{
 ///
 /// [`Instance`] is the public API for interacting with the Vulkan instance.
 pub struct InstanceInternal {
-    pub entry: ash::Entry,
+    pub(crate) entry: ash::Entry,
     instance: ash::Instance,
 
     #[cfg(debug_assertions)]

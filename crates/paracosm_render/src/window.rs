@@ -8,7 +8,7 @@ use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use bevy_window::{PresentMode, RawWindowHandleWrapper, WindowClosed, WindowId, Windows};
 
-use paracosm_gpu::{Device, Surface};
+use paracosm_gpu::{device::Device, surface::Surface};
 
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};

@@ -1,4 +1,5 @@
-use crate::Device;
+use crate::device::Device;
+use crate::mesh::Vertex;
 
 use ash::util;
 use ash::vk;
@@ -43,7 +44,11 @@ impl RasterPipeline {
         ];
 
         // Create fixed function infos
-        let vertex_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder();
+        let binding_descriptions = &[Vertex::binding_description()];
+        let attribute_descriptions = &Vertex::attribute_descriptions();
+        let vertex_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_binding_descriptions(binding_descriptions)
+            .vertex_attribute_descriptions(attribute_descriptions);
 
         let viewport_state_create_info = vk::PipelineViewportStateCreateInfo::builder()
             .scissor_count(1)

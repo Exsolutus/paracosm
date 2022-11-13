@@ -10,9 +10,9 @@ default = ["dev"]
 dev = []
 
 [dependencies]
+anyhow = "1.0.66"
 ash = { version = "0.37.0", features = ["linked"] }
 ash-window = { version = "0.10.0" }
-gpu-allocator = "0.20.0"
 
 # Bevy
 bevy_app = { version = "0.8.0" }
@@ -22,4 +22,6 @@ bevy_log = { version = "0.8.0" }
 bevy_reflect = { version = "0.8.0", features = ["bevy"] }
 bevy_window = { version = "0.8.0" }
 
+gpu-allocator = "0.20.0"
+nalgebra-glm = "0.17.0"
 raw-window-handle = "0.3.4"

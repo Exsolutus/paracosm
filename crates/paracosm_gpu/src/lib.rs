@@ -1,9 +1,10 @@
-mod device;
-mod instance;
-mod raster;
-mod resource;
-mod surface;
-mod utils;
+pub mod device;
+pub mod instance;
+pub mod mesh;
+pub mod raster;
+pub mod resource;
+pub mod surface;
+pub mod utils;
 
 use ash::vk;
 
@@ -12,12 +13,9 @@ use bevy_log::prelude::*;
 
 use std::{ffi::CStr, ffi::CString};
 
-// Public API
-pub use device::Device;
-pub use instance::Instance;
-pub use raster::RasterPipeline;
-pub use resource::Allocator;
-pub use surface::Surface;
+// Expose glm
+pub use nalgebra_glm as glm;
+
 
 /// Vulkan abstractions exposed as Bevy plugin to provide flexible GPU access
 #[derive(Default)]
@@ -70,7 +68,7 @@ impl Plugin for GpuPlugin {
             .api_version(api_version)
             .build();
         let mut instance_extensions = window_extensions;
-        let instance = match Instance::new(entry, app_info, &mut instance_extensions) {
+        let instance = match instance::Instance::new(entry, app_info, &mut instance_extensions) {
             Ok(result) => result,
             Err(error) => panic!("Instance creation failed: {}", error),
         };

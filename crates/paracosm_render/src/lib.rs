@@ -4,7 +4,7 @@ mod window;
 
 use raster::*;
 
-use paracosm_gpu::{Instance, RasterPipeline};
+use paracosm_gpu::{instance::Instance, raster::RasterPipeline, glm, mesh::{Vertex, Mesh}};
 
 use crate::window::WindowRenderPlugin;
 
@@ -99,19 +99,31 @@ impl Plugin for RenderPlugin {
             Some(result) => result,
             None => return error!("No windows found for application!")
         };
-        let (device, queue, allocator) = match initialize_renderer(window, instance.clone()) {
+        let (device, queue) = match initialize_renderer(window, instance.clone()) {
             Ok(result) => result,
             Err(error) => panic!("Renderer initialization failed: {}", error.to_string())
         };
 
+
+
         // TODO: add proper pipeline management
-        // Create triangle pipeline
-        let vertex_spv_path = Path::new("./shaders/colored_triangle_vert.spv");
-        let fragment_spv_path = Path::new("./shaders/colored_triangle_frag.spv");
+        // Create mesh pipeline
+        let vertex_spv_path = Path::new("./shaders/vert.spv");
+        let fragment_spv_path = Path::new("./shaders/frag.spv");
         let triangle_pipeline = match RasterPipeline::new(device.clone(), vertex_spv_path, fragment_spv_path) {
             Ok(result) => result,
             Err(error) => panic!("Renderer::render_system: {}", error.to_string())
         };
+
+        // TODO: add proper asset management
+        // Create triangle mesh
+        let triangle_mesh = Mesh::new(device.clone(), 
+            vec![
+                Vertex::new(glm::vec3(0.0, -0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(1.0, 0.0, 0.0)),
+                Vertex::new(glm::vec3(0.5, 0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)),
+                Vertex::new(glm::vec3(-0.5, 0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 0.0, 1.0)),
+            ]
+        ).unwrap();
 
         app.init_resource::<ScratchMainWorld>();
 
@@ -140,8 +152,8 @@ impl Plugin for RenderPlugin {
             .insert_resource(instance)
             .insert_resource(device)
             .insert_resource(queue)
-            .insert_resource(allocator)
-            .insert_resource(triangle_pipeline);
+            .insert_resource(triangle_pipeline)
+            .insert_resource(triangle_mesh);
             
         app.add_sub_app(RenderApp, render_app, move |app_world, render_app| {
             #[cfg(not(feature = "trace"))]

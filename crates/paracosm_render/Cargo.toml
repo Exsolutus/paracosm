@@ -10,7 +10,9 @@ default = ["dev"]
 dev = []
 
 [dependencies]
-paracosm_gpu = { path = "../paracosm_gpu" }
+anyhow = "1.0.66"
+ash = { version = "0.37.0", features = ["linked"] }
+ash-window = { version = "0.10.0" }
 
 # Bevy
 bevy_app = { version = "0.8.0" }
@@ -19,5 +21,4 @@ bevy_log = { version = "0.8.0" }
 bevy_utils = { version = "0.8.0" }
 bevy_window = { version = "0.8.0" }
 
-ash = { version = "0.37.0", features = ["linked"] }
-ash-window = { version = "0.10.0" }
+paracosm_gpu = { path = "../paracosm_gpu" }

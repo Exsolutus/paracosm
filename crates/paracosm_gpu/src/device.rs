@@ -1,4 +1,4 @@
-use super::Instance;
+use crate::instance::Instance;
 use super::utils::vk_to_string;
 
 use ash::extensions::khr;
@@ -6,9 +6,11 @@ use ash::vk;
 
 use bevy_log::prelude::*;
 
+use gpu_allocator::vulkan as vk_alloc;
+
 use raw_window_handle::HasRawWindowHandle;
 
-use std::{ops::Deref, os::raw::c_char, sync::Arc};
+use std::{ops::Deref, os::raw::c_char, sync::{Arc, Mutex}};
 
 // TODO: Rework queue info once it's clear how they're used
 pub enum QueueFamily {
@@ -40,10 +42,11 @@ pub struct DeviceOptions<'a> {
 ///
 /// [`Device`] is the public API for interacting with the Vulkan device.
 pub struct DeviceInternal {
-    pub instance: Instance,
-    pub physical_device: vk::PhysicalDevice,
-    logical_device: ash::Device,
-    pub queues: DeviceQueues,
+    pub(crate) instance: Instance,
+    pub(crate) physical_device: vk::PhysicalDevice,
+    pub(crate) logical_device: ash::Device,
+    pub(crate) queues: DeviceQueues,
+    pub(crate) allocator: Mutex<vk_alloc::Allocator>
 }
 
 impl Deref for DeviceInternal {
@@ -221,12 +224,23 @@ impl Device {
             None => return Err("No suitable device found for requested parameters!".to_string()),
         };
 
+        let allocator = gpu_allocator::vulkan::Allocator::new(
+            &gpu_allocator::vulkan::AllocatorCreateDesc {
+                instance: instance.deref().deref().clone(),
+                device: logical_device.clone(),
+                physical_device,
+                debug_settings: Default::default(),
+                buffer_device_address: true
+            }
+        ).unwrap();
+
         Ok(Self {
             internal: Arc::new(DeviceInternal {
                 instance,
                 physical_device,
                 logical_device,
                 queues,
+                allocator: Mutex::new(allocator)
             }),
         })
     }
