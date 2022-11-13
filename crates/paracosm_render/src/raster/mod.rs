@@ -38,7 +38,7 @@ pub fn render_system(
     device: Res<Device>,
     queue: Res<vk::Queue>,
     pipeline: Res<RasterPipeline>,
-    mesh: Res<Mesh>,
+    mesh: NonSend<Mesh>,
     windows: Res<ExtractedWindows>,
     mut window_surfaces: NonSendMut<WindowSurfaces>
 ) {

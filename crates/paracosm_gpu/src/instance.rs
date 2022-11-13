@@ -158,7 +158,7 @@ unsafe extern "system" fn vulkan_debug_utils_callback(
         _ => "[Unknown]",
     };
     let message = CStr::from_ptr((*p_callback_data).p_message);
-    println!("{}{}{:?}", severity, types, message);
+    println!("{}{}\n{:?}", severity, types, message);
 
     vk::FALSE
 }

@@ -153,7 +153,7 @@ impl Plugin for RenderPlugin {
             .insert_resource(device)
             .insert_resource(queue)
             .insert_resource(triangle_pipeline)
-            .insert_resource(triangle_mesh);
+            .insert_non_send_resource(triangle_mesh);
             
         app.add_sub_app(RenderApp, render_app, move |app_world, render_app| {
             #[cfg(not(feature = "trace"))]
