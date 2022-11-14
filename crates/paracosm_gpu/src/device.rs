@@ -7,7 +7,7 @@ use ash::vk;
 use bevy_log::prelude::*;
 use gpu_allocator::{vulkan as vk_alloc, AllocatorDebugSettings};
 use raw_window_handle::HasRawWindowHandle;
-use std::{cell::RefCell, ops::Deref, os::raw::c_char, sync::{Arc, Mutex}};
+use std::{ops::Deref, os::raw::c_char, sync::{Arc, Mutex}};
 
 
 // TODO: Rework queue info once it's clear how they're used

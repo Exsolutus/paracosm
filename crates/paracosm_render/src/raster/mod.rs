@@ -162,7 +162,8 @@ pub fn render_system(
                     device.cmd_set_scissor(frame_data.command_buffer, 0, &scissors);
                     device.cmd_bind_pipeline(frame_data.command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline);
                     device.cmd_bind_vertex_buffers(frame_data.command_buffer, 0, slice::from_ref(mesh.vertex_buffer()), &[0]);
-                    device.cmd_draw(frame_data.command_buffer, 3, 1, 0, 0);
+                    device.cmd_bind_index_buffer(frame_data.command_buffer, *mesh.index_buffer(), 0, vk::IndexType::UINT16);
+                    device.cmd_draw_indexed(frame_data.command_buffer, mesh.index_count() as u32, 1, 0, 0, 0);
                 }
 
                 // End rendering
