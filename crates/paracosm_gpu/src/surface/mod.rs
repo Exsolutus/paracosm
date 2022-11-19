@@ -35,7 +35,7 @@ pub struct Surface {
     pub swapchain_semaphore: vk::Semaphore,
 
     frame_number: usize,
-    frame_data: [FrameData; 2],
+    frame_data: Vec<FrameData>,
 }
 
 impl Surface {
@@ -68,12 +68,8 @@ impl Surface {
             Ok(result) => result,
             Err(error) => panic!("Surface::new: {}", error.to_string())
         };
-        
-        // Create frame data for handling frames-in-flight
-        let frame_data = [
-            FrameData::new(device.clone()).expect("Surface::new: FrameData creation failed"),
-            FrameData::new(device.clone()).expect("Surface::new: FrameData creation failed")
-        ];
+
+        let frame_data: Vec<FrameData> = vec![];
 
         Self {
             device,
@@ -88,7 +84,7 @@ impl Surface {
     }
 
     // TODO: refactor to more elegantly handle errors
-    pub fn configure(&self, present_mode: PresentMode, extent: vk::Extent2D) {
+    pub fn configure(&mut self, present_mode: PresentMode, extent: vk::Extent2D) {
         // Drop any existing swapchain
         self.swapchain.replace(None);
 
@@ -143,6 +139,12 @@ impl Surface {
             Err(error) => panic!("Surface::configure: {}", error.to_string())
         };
         self.swapchain.replace(Some(swapchain));
+
+        // Create frame data for handling frames-in-flight
+        self.frame_data.clear();
+        for _ in 0..image_count {
+            self.frame_data.push(FrameData::new(self.device.clone()).expect("Surface::new: FrameData creation failed"));
+        }
     }
 
     pub fn attachment_info(&self, image_index: u32, clear_value: vk::ClearValue) -> Result<vk::RenderingAttachmentInfo, String> {
@@ -214,7 +216,8 @@ impl Surface {
 
     pub fn queue_present(&mut self, queue: vk::Queue, image_indices: &[u32]) -> Result<bool, String> {
         let frame_data = &self.frame_data[self.frame_number];
-        self.frame_number = (self.frame_number + 1) % 2;
+        let frame_count = self.frame_data.len();
+        self.frame_number = (self.frame_number + 1) % frame_count;
 
         let swapchain = self.swapchain.borrow();
         if let Some(swapchain) = swapchain.deref() {

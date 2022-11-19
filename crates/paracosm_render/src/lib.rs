@@ -104,8 +104,6 @@ impl Plugin for RenderPlugin {
             Err(error) => panic!("Renderer initialization failed: {}", error.to_string())
         };
 
-
-
         // TODO: add proper pipeline management
         // Create mesh pipeline
         let vertex_spv_path = Path::new("./shaders/vert.spv");

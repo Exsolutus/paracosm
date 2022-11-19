@@ -1,6 +1,8 @@
 use crate::device::Device;
 use crate::mesh::Vertex;
 
+use anyhow::Result;
+use anyhow::bail;
 use ash::util;
 use ash::vk;
 
@@ -13,15 +15,14 @@ use std::{
 
 pub struct RasterPipeline {
     device: Device,
-
     shader_modules: Vec<vk::ShaderModule>,
-
+    descriptor_set_layout: vk::DescriptorSetLayout,
     pub pipeline: vk::Pipeline,
     pipeline_layout: vk::PipelineLayout
 }
 
 impl RasterPipeline {
-    pub fn new(device: Device, vertex_path: &Path, fragment_path: &Path) -> Result<Self, String> {
+    pub fn new(device: Device, vertex_path: &Path, fragment_path: &Path) -> Result<Self> {
         // TODO: un-hardcode this format
         let format = vk::Format::B8G8R8A8_UNORM; //surface.format()?;
         
@@ -96,18 +97,30 @@ impl RasterPipeline {
             .logic_op(vk::LogicOp::CLEAR)
             .attachments(&color_blend_attachment_states);
 
-        let create_info = vk::PipelineLayoutCreateInfo::builder();
+        // Create pipeline layout
+        let binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::VERTEX);
+        let create_info = vk::DescriptorSetLayoutCreateInfo::builder()
+            .bindings(slice::from_ref(&binding));
+
+        let descriptor_set_layout = unsafe { device.create_descriptor_set_layout(&create_info, None)? };
+
+        let create_info = vk::PipelineLayoutCreateInfo::builder()
+            .set_layouts(slice::from_ref(&descriptor_set_layout));
         let pipeline_layout = unsafe {
             match device.create_pipeline_layout(&create_info, None) {
                 Ok(result) => result,
-                Err(_) => return Err("Failed to create pipeline layout!".to_string())
+                Err(_) => bail!("Failed to create pipeline layout!".to_string())
             }
         };
 
+        // Create pipeline
         let mut pipeline_rendering_create_info = vk::PipelineRenderingCreateInfo::builder()
             .color_attachment_formats(slice::from_ref(&format));
 
-        // Create pipeline
         let create_info = vk::GraphicsPipelineCreateInfo::builder()
             .push_next(&mut pipeline_rendering_create_info)
             .stages(&shader_stage_create_infos)
@@ -122,33 +135,34 @@ impl RasterPipeline {
         let pipeline = unsafe {
             match device.create_graphics_pipelines(vk::PipelineCache::null(), slice::from_ref(&create_info), None) {
                 Ok(result) => result,
-                Err(_) => return Err("Failed to create pipeline!".to_string())
+                Err(_) => bail!("Failed to create pipeline!".to_string())
             }
         }[0];
 
         Ok(Self {
             device,
             shader_modules: vec![vertex_module, fragment_module],
+            descriptor_set_layout,
             pipeline,
             pipeline_layout
         })
     }
 
-    fn create_shader_module(device: &Device, path: &Path) -> Result<vk::ShaderModule, String> {
+    fn create_shader_module(device: &Device, path: &Path) -> Result<vk::ShaderModule> {
         let mut file = match File::open(path) {
             Ok(result) => result,
-            Err(error) => return Err(format!("Failed to open shader file {}\nError: {}", path.to_str().unwrap(), error))
+            Err(error) => bail!("Failed to open shader file {}\nError: {}", path.to_str().unwrap(), error)
         };
         let code = match util::read_spv(&mut file) {
             Ok(result) => result,
-            Err(error) => return Err(format!("Failed to read shader file {}\nError: {}", path.to_str().unwrap(), error))
+            Err(error) => bail!("Failed to read shader file {}\nError: {}", path.to_str().unwrap(), error)
         };
         let create_info = vk::ShaderModuleCreateInfo::builder()
             .code(&code);
         let shader_module = unsafe {
             match device.create_shader_module(&create_info, None) {
                 Ok(result) => result,
-                Err(error) => return Err(format!("Failed to create shader module from file {}\nError: {}", path.to_str().unwrap(), error))
+                Err(error) => bail!("Failed to create shader module from file {}\nError: {}", path.to_str().unwrap(), error)
             }
         };
 
@@ -163,6 +177,7 @@ impl Drop for RasterPipeline {
             
             self.device.destroy_pipeline(self.pipeline, None);
             self.device.destroy_pipeline_layout(self.pipeline_layout, None);
+            self.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             self.device.destroy_shader_module(self.shader_modules[0], None);
             self.device.destroy_shader_module(self.shader_modules[1], None);
         }
