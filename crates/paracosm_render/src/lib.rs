@@ -1,10 +1,11 @@
 mod extract_param;
+mod extract_resource;
 mod raster;
 mod window;
 
 use raster::*;
 
-use paracosm_gpu::{instance::Instance, raster::RasterPipeline, glm, mesh::{Vertex, Mesh}};
+use paracosm_gpu::{glm, instance::Instance, raster::RasterPipeline, mesh::{Vertex, Mesh}};
 
 use crate::window::WindowRenderPlugin;
 
@@ -110,12 +111,12 @@ impl Plugin for RenderPlugin {
         let fragment_spv_path = Path::new("./shaders/frag.spv");
         let triangle_pipeline = match RasterPipeline::new(device.clone(), vertex_spv_path, fragment_spv_path) {
             Ok(result) => result,
-            Err(error) => panic!("Renderer::render_system: {}", error.to_string())
+            Err(error) => panic!("Pipeline creation failed: {}", error.to_string())
         };
 
         // TODO: add proper asset management
         // Create triangle mesh
-        let triangle_mesh = Mesh::new(device.clone(), 
+        let mut triangle_mesh = Mesh::new(device.clone(), 
             vec![
                 Vertex::new(glm::vec3(-0.5, -0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(1.0, 0.0, 0.0)),
                 Vertex::new(glm::vec3(0.5, -0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)),
@@ -124,6 +125,9 @@ impl Plugin for RenderPlugin {
             ],
             vec![0, 1, 2, 2, 3, 0]
         ).unwrap();
+        triangle_mesh.upload().unwrap();
+
+
 
         app.init_resource::<ScratchMainWorld>();
 

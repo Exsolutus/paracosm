@@ -11,6 +11,9 @@ use gpu_allocator::{vulkan::{
 use std::{slice, cell::RefCell};
 
 
+
+pub use vk::{BufferCreateInfo, BufferUsageFlags, SharingMode};
+
 #[derive(Debug)]
 pub struct Buffer {
     pub(crate) buffer: vk::Buffer,

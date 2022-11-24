@@ -7,7 +7,7 @@ use ash::vk;
 use bevy_log::prelude::*;
 use gpu_allocator::{vulkan as vk_alloc, AllocatorDebugSettings};
 use raw_window_handle::HasRawWindowHandle;
-use std::{ops::Deref, os::raw::c_char, sync::{Arc, Mutex}};
+use std::{ops::Deref, os::raw::c_char, slice, sync::{Arc, Mutex}};
 
 
 // TODO: Rework queue info once it's clear how they're used
@@ -87,12 +87,6 @@ impl Device {
         info!("Creating Vulkan device");
 
         // Get candidate physical devices filtered by selector
-        // let physical_devices: Vec<vk::PhysicalDevice> = match unsafe {
-        //     instance.enumerate_physical_devices()
-        // } {
-        //     Ok(result) => result,
-        //     Err(error) => return Err(error.to_string()),
-        // }
         let physical_devices: Vec<vk::PhysicalDevice> = unsafe {
             instance.enumerate_physical_devices()
                 .context("Failed to enumerate physical devices")?
@@ -228,10 +222,6 @@ impl Device {
 
             Some((physical_device, logical_device, queues))
         });
-        // let (physical_device, logical_device, queues) = match result {
-        //     Some(result) => result,
-        //     None => return Err("No suitable device found for requested parameters!".to_string()),
-        // };
         let (physical_device, logical_device, queues) = result.context("No suitable device found for requested parameters!")?;
 
 

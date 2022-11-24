@@ -195,6 +195,10 @@ impl Surface {
         }
     }
 
+    pub fn frame_count(&self) -> usize {
+        self.frame_data.len()
+    }
+
     pub fn frame_data(&self) -> &FrameData {
         &self.frame_data[self.frame_number]
     }

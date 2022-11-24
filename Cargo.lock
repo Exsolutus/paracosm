@@ -1637,6 +1637,8 @@ dependencies = [
  "bevy_app",
  "bevy_ecs",
  "bevy_log",
+ "bevy_render_macros",
+ "bevy_time",
  "bevy_utils",
  "bevy_window",
  "paracosm_gpu",

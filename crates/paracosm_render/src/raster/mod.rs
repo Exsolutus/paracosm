@@ -4,9 +4,11 @@ use ash::vk;
 
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
+use bevy_time::prelude::*;
 use bevy_window::Window;
 
 use paracosm_gpu::{instance::Instance, device::Device, surface::Surface, raster::RasterPipeline, mesh::Mesh};
+use paracosm_gpu::glm;
 
 use std::slice;
 
@@ -37,10 +39,10 @@ pub fn initialize_renderer(
 pub fn render_system(
     device: Res<Device>,
     queue: Res<vk::Queue>,
-    pipeline: Res<RasterPipeline>,
-    mesh: NonSend<Mesh>,
     windows: Res<ExtractedWindows>,
-    mut window_surfaces: NonSendMut<WindowSurfaces>
+    mut window_surfaces: NonSendMut<WindowSurfaces>,
+    pipeline: Res<RasterPipeline>,
+    mesh: NonSend<Mesh>
 ) {
     {
         //let _span = info_span!("present_frames").entered();
@@ -161,8 +163,10 @@ pub fn render_system(
                     device.cmd_set_viewport(frame_data.command_buffer, 0, &viewports);
                     device.cmd_set_scissor(frame_data.command_buffer, 0, &scissors);
                     device.cmd_bind_pipeline(frame_data.command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline);
-                    device.cmd_bind_vertex_buffers(frame_data.command_buffer, 0, slice::from_ref(mesh.vertex_buffer()), &[0]);
-                    device.cmd_bind_index_buffer(frame_data.command_buffer, *mesh.index_buffer(), 0, vk::IndexType::UINT16);
+                    match mesh.bind(frame_data.command_buffer) {
+                        Ok(_) => (),
+                        Err(error) => return error!("Renderer::render_system: {}", error)
+                    };
                     device.cmd_draw_indexed(frame_data.command_buffer, mesh.index_count() as u32, 1, 0, 0, 0);
                 }
 
