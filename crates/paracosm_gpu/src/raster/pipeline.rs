@@ -5,20 +5,20 @@ use anyhow::Result;
 use anyhow::bail;
 use ash::util;
 use ash::vk;
-
+use nalgebra_glm as glm;
 use std::{
     ffi::CStr,
     fs::File,
+    mem::size_of,
     path::Path,
     slice
 };
 
 pub struct RasterPipeline {
     device: Device,
-    shader_modules: Vec<vk::ShaderModule>,
     descriptor_set_layout: vk::DescriptorSetLayout,
     pub pipeline: vk::Pipeline,
-    pipeline_layout: vk::PipelineLayout
+    pub pipeline_layout: vk::PipelineLayout
 }
 
 impl RasterPipeline {
@@ -97,18 +97,23 @@ impl RasterPipeline {
             .logic_op(vk::LogicOp::CLEAR)
             .attachments(&color_blend_attachment_states);
 
-        // Create pipeline layout
-        let binding = vk::DescriptorSetLayoutBinding::builder()
+        // Create pipeline layouts
+        let push_constant = vk::PushConstantRange::builder()
+            .offset(0)
+            .size(size_of::<glm::Mat4>() as u32)
+            .stage_flags(vk::ShaderStageFlags::VERTEX);
+
+        let vertex_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::VERTEX);
         let create_info = vk::DescriptorSetLayoutCreateInfo::builder()
-            .bindings(slice::from_ref(&binding));
-
+            .bindings(slice::from_ref(&vertex_binding));
         let descriptor_set_layout = unsafe { device.create_descriptor_set_layout(&create_info, None)? };
 
         let create_info = vk::PipelineLayoutCreateInfo::builder()
+            .push_constant_ranges(slice::from_ref(&push_constant))
             .set_layouts(slice::from_ref(&descriptor_set_layout));
         let pipeline_layout = unsafe {
             match device.create_pipeline_layout(&create_info, None) {
@@ -139,9 +144,14 @@ impl RasterPipeline {
             }
         }[0];
 
+        // Cleanup
+        unsafe {
+            device.destroy_shader_module(vertex_module, None);
+            device.destroy_shader_module(fragment_module, None);
+        }
+
         Ok(Self {
             device,
-            shader_modules: vec![vertex_module, fragment_module],
             descriptor_set_layout,
             pipeline,
             pipeline_layout
@@ -178,8 +188,6 @@ impl Drop for RasterPipeline {
             self.device.destroy_pipeline(self.pipeline, None);
             self.device.destroy_pipeline_layout(self.pipeline_layout, None);
             self.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-            self.device.destroy_shader_module(self.shader_modules[0], None);
-            self.device.destroy_shader_module(self.shader_modules[1], None);
         }
     }
 }

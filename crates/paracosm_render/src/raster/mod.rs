@@ -42,7 +42,8 @@ pub fn render_system(
     windows: Res<ExtractedWindows>,
     mut window_surfaces: NonSendMut<WindowSurfaces>,
     pipeline: Res<RasterPipeline>,
-    mesh: NonSend<Mesh>
+    mesh: NonSend<Mesh>,
+    time: NonSend<Time>
 ) {
     {
         //let _span = info_span!("present_frames").entered();
@@ -153,6 +154,28 @@ pub fn render_system(
 
                 // Rendering commands
                 unsafe {
+                    let model = glm::rotate(
+                        &glm::identity(),
+                        time.seconds_since_startup() as f32 * glm::radians(&glm::vec1(90.0))[0],
+                        &glm::vec3(0.0, 0.0, 1.0)
+                    );
+                    let view = glm::look_at(
+                        &glm::vec3(2.0, 2.0, 2.0),
+                        &glm::vec3(0.0, 0.0, 0.0),
+                        &glm::vec3(0.0, 0.0, 1.0),
+                    );
+                    let mut proj = glm::perspective(
+                        extent.width as f32 / extent.height as f32,
+                        glm::radians(&glm::vec1(45.0))[0],
+                        0.1,
+                        10.0
+                    );
+                    proj[(1, 1)] *= -1.0;
+                    let render_matrix = proj * view * model;
+
+                    let (_, render_matrix_bytes, _) = render_matrix.as_slice().align_to::<u8>();
+
+
                     let viewports = [
                         vk::Viewport::builder()
                             .width(extent.width as f32)
@@ -167,6 +190,7 @@ pub fn render_system(
                         Ok(_) => (),
                         Err(error) => return error!("Renderer::render_system: {}", error)
                     };
+                    device.cmd_push_constants(frame_data.command_buffer, pipeline.pipeline_layout, vk::ShaderStageFlags::VERTEX, 0, render_matrix_bytes);
                     device.cmd_draw_indexed(frame_data.command_buffer, mesh.index_count() as u32, 1, 0, 0, 0);
                 }
 

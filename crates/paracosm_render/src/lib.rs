@@ -14,6 +14,7 @@ pub use extract_param::Extract;
 use bevy_app::{App, AppLabel, Plugin};
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
+use bevy_time::prelude::*;
 use bevy_utils;
 
 use std::{
@@ -167,6 +168,9 @@ impl Plugin for RenderPlugin {
                 #[cfg(feature = "trace")]
                 let _stage_span =
                     bevy_utils::tracing::info_span!("stage", name = "extract").entered();
+
+                let time = app_world.get_resource::<Time>().unwrap().clone();
+                render_app.insert_non_send_resource(time);
 
                 // extract
                 extract(app_world, render_app);
