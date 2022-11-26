@@ -7,21 +7,21 @@ use bevy_log::prelude::*;
 use bevy_time::prelude::*;
 use bevy_window::Window;
 
-use paracosm_gpu::{instance::Instance, device::Device, surface::Surface, raster::RasterPipeline, mesh::Mesh};
+use paracosm_gpu::{instance::Instance, device::{Device, Queue}, surface::Surface, raster::RasterPipeline, mesh::Mesh};
 use paracosm_gpu::glm;
 
 use std::slice;
 
 // Types initialized by renderer
-type RendererData = (Device, vk::Queue);
+type RendererData = (Device, Queue);
 
 pub fn initialize_renderer(
     window: &Window,
     instance: Instance
 ) -> Result<RendererData, String> {
     // Create Device
-    let window_handle = unsafe { window.raw_window_handle().get_handle() };
-    let device = match Device::primary(instance.clone(), Some(&window_handle)) {
+    let window_handle = window.raw_handle();
+    let device = match Device::primary(instance.clone(), window_handle) {
         Ok(result) => result,
         Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string())),
     };
@@ -38,7 +38,7 @@ pub fn initialize_renderer(
 // Renderer main loop
 pub fn render_system(
     device: Res<Device>,
-    queue: Res<vk::Queue>,
+    queue: Res<Queue>,
     windows: Res<ExtractedWindows>,
     mut window_surfaces: NonSendMut<WindowSurfaces>,
     pipeline: Res<RasterPipeline>,
@@ -156,7 +156,7 @@ pub fn render_system(
                 unsafe {
                     let model = glm::rotate(
                         &glm::identity(),
-                        time.seconds_since_startup() as f32 * glm::radians(&glm::vec1(90.0))[0],
+                        time.elapsed_seconds() * glm::radians(&glm::vec1(90.0))[0],
                         &glm::vec3(0.0, 0.0, 1.0)
                     );
                     let view = glm::look_at(
@@ -233,13 +233,13 @@ pub fn render_system(
                     .signal_semaphores(slice::from_ref(&frame_data.render_semaphore))
                     .command_buffers(slice::from_ref(&frame_data.command_buffer))
                     .build();
-                match unsafe { device.queue_submit(*queue, slice::from_ref(&submit_info), frame_data.in_flight_fence) } {
+                match unsafe { device.queue_submit(**queue, slice::from_ref(&submit_info), frame_data.in_flight_fence) } {
                     Err(error) => return error!("Renderer::render_system: {}", error),
                     _ => ()
                 };
 
                 // // Present rendered image to surface
-                match surface.queue_present(*queue, slice::from_ref(&image_index)) {
+                match surface.queue_present(**queue, slice::from_ref(&image_index)) {
                     Err(error) => return error!("Renderer::render_system: {}", error),
                     _ => ()
                 };

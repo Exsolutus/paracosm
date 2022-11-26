@@ -28,8 +28,10 @@ impl Plugin for GpuPlugin {
         let window = windows
             .get_primary()
             .expect("Failed to get application window!");
-        let window_handle = unsafe { window.raw_window_handle().get_handle() };
-        let window_extensions = ash_window::enumerate_required_extensions(&window_handle)
+        let window_handle = window.raw_handle()
+            .expect("Failed to get window handle!")
+            .get_display_handle();
+        let window_extensions = ash_window::enumerate_required_extensions(window_handle)
             .expect("Failed to get window extensions!")
             .to_vec();
 

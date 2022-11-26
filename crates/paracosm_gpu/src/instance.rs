@@ -1,6 +1,7 @@
 use ash::{extensions::ext::DebugUtils, vk};
 
 use bevy_log::prelude::*;
+use bevy_ecs::system::Resource;
 
 use std::{
     ffi::CStr,
@@ -57,7 +58,7 @@ impl Drop for InstanceInternal {
 }
 
 /// Public API for interacting with the Vulkan instance.
-#[derive(Clone)]
+#[derive(Clone, Resource)]
 pub struct Instance {
     internal: Arc<InstanceInternal>,
 }

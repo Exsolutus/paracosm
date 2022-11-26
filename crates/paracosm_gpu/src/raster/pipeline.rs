@@ -5,6 +5,7 @@ use anyhow::Result;
 use anyhow::bail;
 use ash::util;
 use ash::vk;
+use bevy_ecs::system::Resource;
 use nalgebra_glm as glm;
 use std::{
     ffi::CStr,
@@ -14,6 +15,7 @@ use std::{
     slice
 };
 
+#[derive(Resource)]
 pub struct RasterPipeline {
     device: Device,
     descriptor_set_layout: vk::DescriptorSetLayout,

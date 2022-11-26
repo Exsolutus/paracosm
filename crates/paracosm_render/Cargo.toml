@@ -11,16 +11,16 @@ dev = []
 
 [dependencies]
 anyhow = "1.0.66"
-ash = { version = "0.37.0", features = ["linked"] }
-ash-window = { version = "0.10.0" }
+ash = { version = "0.37.1", features = ["linked"] }
+ash-window = { version = "0.12.0" }
 
 # Bevy
-bevy_app = { version = "0.8.0" }
-bevy_ecs = { version = "0.8.0" }
-bevy_log = { version = "0.8.0" }
-bevy_render_macros = { version = "0.8.0" }
-bevy_time = { version = "0.8.0" }
-bevy_utils = { version = "0.8.0" }
-bevy_window = { version = "0.8.0" }
+bevy_app = { version = "0.9.0" }
+bevy_ecs = { version = "0.9.0" }
+bevy_log = { version = "0.9.0" }
+bevy_render_macros = { version = "0.9.0" }
+bevy_time = { version = "0.9.0" }
+bevy_utils = { version = "0.9.0" }
+bevy_window = { version = "0.9.0" }
 
 paracosm_gpu = { path = "../paracosm_gpu" }

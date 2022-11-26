@@ -10,7 +10,7 @@ use ash::extensions::khr;
 use ash::vk;
 
 use bevy_log::prelude::*;
-use bevy_window::{PresentMode, RawWindowHandleWrapper};
+use bevy_window::{PresentMode, RawHandleWrapper};
 
 use std::{
     cell::RefCell,
@@ -41,10 +41,9 @@ pub struct Surface {
 impl Surface {
     pub fn new(
         device: Device,
-        window_handle: &RawWindowHandleWrapper
+        raw_handle: &RawHandleWrapper
     ) -> Self {
         let instance = &device.instance;
-        let window_handle = unsafe { window_handle.get_handle() };
 
         // Select presentation queue for device
         // TODO: evaluate all queues and select best
@@ -58,7 +57,7 @@ impl Surface {
         //
         //  Guaranteed by Surface retaining a reference to this Instance
         let surface_handle = unsafe { 
-            ash_window::create_surface(&instance.entry, &instance, &window_handle, None)
+            ash_window::create_surface(&instance.entry, &instance, raw_handle.display_handle, raw_handle.window_handle, None)
                 .expect("Surface::new: Surface creation failed")
         };
 

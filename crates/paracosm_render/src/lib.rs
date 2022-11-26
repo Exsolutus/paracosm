@@ -23,13 +23,17 @@ use std::{
     path::Path,
 };
 
-// TODO: make sure you understand the usage of this main world
+
 /// The simulation [`World`] of the application, stored as a resource.
 /// This resource is only available during [`RenderStage::Extract`] and not
 /// during command application of that stage.
 /// See [`Extract`] for more details.
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub struct MainWorld(World);
+
+/// The Render App World. This is only available as a resource during the Extract step.
+#[derive(Resource, Default)]
+pub struct RenderWorld(World);
 
 impl Deref for MainWorld {
     type Target = World;
@@ -151,7 +155,7 @@ impl Plugin for RenderPlugin {
             .add_stage(
                 RenderStage::Render, 
                 SystemStage::parallel()
-                    .with_system(render_system.exclusive_system().at_end())
+                    .with_system(render_system.at_end())
             )
             .add_stage(RenderStage::Cleanup, SystemStage::parallel())
             .insert_resource(instance)
@@ -184,7 +188,7 @@ impl Plugin for RenderPlugin {
                 // prepare
                 let prepare = render_app
                     .schedule
-                    .get_stage_mut::<SystemStage>(&RenderStage::Prepare)
+                    .get_stage_mut::<SystemStage>(RenderStage::Prepare)
                     .unwrap();
                 prepare.run(&mut render_app.world);
             }
@@ -197,7 +201,7 @@ impl Plugin for RenderPlugin {
                 // render
                 let render = render_app
                     .schedule
-                    .get_stage_mut::<SystemStage>(&RenderStage::Render)
+                    .get_stage_mut::<SystemStage>(RenderStage::Render)
                     .unwrap();
                 render.run(&mut render_app.world);
             }
@@ -209,10 +213,10 @@ impl Plugin for RenderPlugin {
     }
 }
 
-// TODO: make sure you understand usage of this scratch world
+
 /// A "scratch" world used to avoid allocating new worlds every frame when
 /// swapping out the [`MainWorld`] for [`RenderStage::Extract`].
-#[derive(Default)]
+#[derive(Resource, Default)]
 struct ScratchMainWorld(World);
 
 /// Executes the [`Extract`](RenderStage::Extract) stage of the renderer.
@@ -220,7 +224,7 @@ struct ScratchMainWorld(World);
 fn extract(app_world: &mut World, render_app: &mut App) {
     let extract = render_app
         .schedule
-        .get_stage_mut::<SystemStage>(&RenderStage::Extract)
+        .get_stage_mut::<SystemStage>(RenderStage::Extract)
         .unwrap();
 
     // temporarily add the app world to the render world as a resource

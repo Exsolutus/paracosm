@@ -80,8 +80,8 @@ impl Device {
             .command_buffers(slice::from_ref(&command_buffer))
             .build();
         unsafe { 
-            self.queue_submit(self.transfer_queue, slice::from_ref(&submit_info), vk::Fence::null())?;
-            self.queue_wait_idle(self.transfer_queue)?;
+            self.queue_submit(*self.transfer_queue, slice::from_ref(&submit_info), vk::Fence::null())?;
+            self.queue_wait_idle(*self.transfer_queue)?;
         }
 
         // Cleanup
