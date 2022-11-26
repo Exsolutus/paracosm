@@ -10,6 +10,8 @@ use bevy_window::RawHandleWrapper;
 use gpu_allocator::{vulkan as vk_alloc, AllocatorDebugSettings};
 use std::{ops::Deref, os::raw::c_char, sync::{Arc, Mutex}};
 
+pub use ash::vk::Queue;
+
 
 // TODO: Rework queue info once it's clear how they're used
 pub enum QueueFamily {
@@ -28,17 +30,6 @@ pub struct DeviceQueues {
     pub transfer_count: u32,
 
     pub present_family: Option<u32>
-}
-
-#[derive(Clone, Resource)]
-pub struct Queue(vk::Queue);
-
-impl Deref for Queue {
-    type Target = vk::Queue;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
 }
 
 
@@ -274,7 +265,7 @@ impl Device {
                 physical_device,
                 logical_device,
                 queues,
-                transfer_queue: Queue(transfer_queue),
+                transfer_queue,
                 transfer_pool,
                 allocator: Some(Mutex::new(allocator))
             }),
@@ -328,12 +319,12 @@ impl Device {
         })
         .context(format!("Queue index out of range; index {}, queue count {}", queue_index, self.queues.graphics_count))?;
 
-        Ok(Queue(queue))
+        Ok(queue)
     }
 
     pub fn transfer_queue(&self, queue_index: u32) -> Result<Queue> {
         if queue_index == 0 {
-            return Ok(self.transfer_queue.clone());
+            return Ok(self.transfer_queue);
         }
 
         let queue = (queue_index < self.queues.transfer_count).then(|| {
@@ -341,7 +332,7 @@ impl Device {
         })
         .context(format!("Queue index out of range; index {}, queue count {}", queue_index, self.queues.transfer_count))?;
 
-        Ok(Queue(queue))
+        Ok(queue)
     }
 
     #[inline]

@@ -2,6 +2,7 @@ use crate::window::{ExtractedWindows, WindowSurfaces};
 
 use ash::vk;
 
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use bevy_time::prelude::*;
@@ -12,8 +13,12 @@ use paracosm_gpu::glm;
 
 use std::slice;
 
+/// This queue is used to enqueue tasks for the GPU to execute asynchronously.
+#[derive(Resource, Clone, Deref, DerefMut)]
+pub struct RenderQueue(pub Queue);
+
 // Types initialized by renderer
-type RendererData = (Device, Queue);
+type RendererData = (Device, RenderQueue);
 
 pub fn initialize_renderer(
     window: &Window,
@@ -32,13 +37,13 @@ pub fn initialize_renderer(
         Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string()))
     };
 
-    Ok((device, graphics_queue))
+    Ok((device, RenderQueue(graphics_queue)))
 }
 
 // Renderer main loop
 pub fn render_system(
     device: Res<Device>,
-    queue: Res<Queue>,
+    queue: Res<RenderQueue>,
     windows: Res<ExtractedWindows>,
     mut window_surfaces: NonSendMut<WindowSurfaces>,
     pipeline: Res<RasterPipeline>,

@@ -16,8 +16,11 @@ ash-window = { version = "0.12.0" }
 
 # Bevy
 bevy_app = { version = "0.9.0" }
+bevy_core = { version = "0.9.0" }
+bevy_derive = { version = "0.9.0" }
 bevy_ecs = { version = "0.9.0" }
 bevy_log = { version = "0.9.0" }
+bevy_reflect = { version = "0.9.0" }
 bevy_render_macros = { version = "0.9.0" }
 bevy_time = { version = "0.9.0" }
 bevy_utils = { version = "0.9.0" }
