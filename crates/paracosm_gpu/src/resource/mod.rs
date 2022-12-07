@@ -3,5 +3,3 @@ pub mod pipeline;
 pub mod shader;
 
 pub use gpu_allocator::MemoryLocation;
-
-pub use gpu_allocator::MemoryLocation;
