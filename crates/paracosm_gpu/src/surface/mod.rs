@@ -4,13 +4,13 @@ mod frame_data;
 use swapchain::Swapchain;
 use frame_data::FrameData;
 
-use super::Device;
+use crate::device::Device;
 
 use ash::extensions::khr;
 use ash::vk;
 
 use bevy_log::prelude::*;
-use bevy_window::{PresentMode, RawWindowHandleWrapper};
+use bevy_window::{PresentMode, RawHandleWrapper};
 
 use std::{
     cell::RefCell,
@@ -35,16 +35,19 @@ pub struct Surface {
     pub swapchain_semaphore: vk::Semaphore,
 
     frame_number: usize,
-    frame_data: [FrameData; 2],
+    frame_data: Vec<FrameData>,
 }
 
 impl Surface {
     pub fn new(
         device: Device,
-        window_handle: &RawWindowHandleWrapper
+        raw_handle: &RawHandleWrapper
     ) -> Self {
         let instance = &device.instance;
-        let window_handle = unsafe { window_handle.get_handle() };
+
+        // Select presentation queue for device
+        // TODO: evaluate all queues and select best
+        let present_queue_index = device.queues.graphics_family;
 
         // Select presentation queue for device
         // TODO: evaluate all queues and select best
@@ -58,7 +61,7 @@ impl Surface {
         //
         //  Guaranteed by Surface retaining a reference to this Instance
         let surface_handle = unsafe { 
-            ash_window::create_surface(&instance.entry, &instance, &window_handle, None)
+            ash_window::create_surface(&instance.entry, &instance, raw_handle.display_handle, raw_handle.window_handle, None)
                 .expect("Surface::new: Surface creation failed")
         };
 
@@ -68,12 +71,8 @@ impl Surface {
             Ok(result) => result,
             Err(error) => panic!("Surface::new: {}", error.to_string())
         };
-        
-        // Create frame data for handling frames-in-flight
-        let frame_data = [
-            FrameData::new(device.clone()).expect("Surface::new: FrameData creation failed"),
-            FrameData::new(device.clone()).expect("Surface::new: FrameData creation failed")
-        ];
+
+        let frame_data: Vec<FrameData> = vec![];
 
         Self {
             device,
@@ -88,7 +87,7 @@ impl Surface {
     }
 
     // TODO: refactor to more elegantly handle errors
-    pub fn configure(&self, present_mode: PresentMode, extent: vk::Extent2D) {
+    pub fn configure(&mut self, present_mode: PresentMode, extent: vk::Extent2D) {
         // Drop any existing swapchain
         self.swapchain.replace(None);
 
@@ -143,6 +142,12 @@ impl Surface {
             Err(error) => panic!("Surface::configure: {}", error.to_string())
         };
         self.swapchain.replace(Some(swapchain));
+
+        // Create frame data for handling frames-in-flight
+        self.frame_data.clear();
+        for _ in 0..image_count {
+            self.frame_data.push(FrameData::new(self.device.clone()).expect("Surface::new: FrameData creation failed"));
+        }
     }
 
     pub fn attachment_info(&self, image_index: u32, clear_value: vk::ClearValue) -> Result<vk::RenderingAttachmentInfo, String> {
@@ -193,6 +198,10 @@ impl Surface {
         }
     }
 
+    pub fn frame_count(&self) -> usize {
+        self.frame_data.len()
+    }
+
     pub fn frame_data(&self) -> &FrameData {
         &self.frame_data[self.frame_number]
     }
@@ -214,7 +223,8 @@ impl Surface {
 
     pub fn queue_present(&mut self, queue: vk::Queue, image_indices: &[u32]) -> Result<bool, String> {
         let frame_data = &self.frame_data[self.frame_number];
-        self.frame_number = (self.frame_number + 1) % 2;
+        let frame_count = self.frame_data.len();
+        self.frame_number = (self.frame_number + 1) % frame_count;
 
         let swapchain = self.swapchain.borrow();
         if let Some(swapchain) = swapchain.deref() {

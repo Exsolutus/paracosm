@@ -1,5 +1,6 @@
-use super::Device;
+use crate::device::Device;
 
+use anyhow::{Context, Result};
 use ash::vk;
 
 
@@ -14,28 +15,28 @@ pub struct FrameData {
 }
 
 impl FrameData {
-    pub fn new(device: Device) -> Result<Self, String> {
+    pub fn new(device: Device) -> Result<Self> {
         // Create sync structures
         let create_info = vk::SemaphoreCreateInfo::builder();
-        let render_semaphore = match unsafe { device.create_semaphore(&create_info, None) } {
-            Ok(result) => result,
-            Err(error) => return Err(format!("FrameData::new: {}", error.to_string()))
+        let render_semaphore = unsafe { 
+            device.create_semaphore(&create_info, None)
+                .context("FrameData::new: ")?
         };
         
         let create_info = vk::FenceCreateInfo::builder()
             .flags(vk::FenceCreateFlags::SIGNALED);
-        let in_flight_fence = match unsafe { device.create_fence(&create_info, None) } {
-            Ok(result) => result,
-            Err(error) => return Err(format!("FrameData::new: {}", error.to_string()))
+        let in_flight_fence = unsafe {
+            device.create_fence(&create_info, None)
+                .context("FrameData::new: ")?
         };
 
         // Create graphics command pool
         let create_info = vk::CommandPoolCreateInfo::builder()
             .queue_family_index(device.queues.graphics_family)
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
-        let command_pool = match unsafe { device.create_command_pool(&create_info, None) } {
-            Ok(result) => result,
-            Err(error) => return Err(format!("FrameData::new: {}", error.to_string()))
+        let command_pool = unsafe {
+            device.create_command_pool(&create_info, None)
+                .context("FrameData::new: ")?
         };
 
         // Create graphics command buffer
@@ -43,9 +44,9 @@ impl FrameData {
             .command_pool(command_pool)
             .command_buffer_count(1)
             .level(vk::CommandBufferLevel::PRIMARY);
-        let command_buffer = match unsafe { device.allocate_command_buffers(&alloc_info) } {
-            Ok(result) => result[0],
-            Err(error) => return Err(format!("FrameData::new: {}", error.to_string()))
+        let command_buffer = unsafe {
+            device.allocate_command_buffers(&alloc_info)
+                .context("FrameData::new: ")?[0]
         };
 
         Ok(Self {

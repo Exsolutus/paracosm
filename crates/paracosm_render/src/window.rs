@@ -6,15 +6,15 @@ use ash::vk::Extent2D;
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
-use bevy_window::{PresentMode, RawWindowHandleWrapper, WindowClosed, WindowId, Windows};
+use bevy_window::{PresentMode, RawHandleWrapper, WindowClosed, WindowId, Windows};
 
-use paracosm_gpu::{Device, Surface};
+use paracosm_gpu::{device::Device, surface::Surface};
 
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 
 /// Token to ensure a system runs on the main thread.
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub struct NonSendMarker;
 
 #[derive(SystemLabel, Debug, Clone, PartialEq, Eq, Hash)]
@@ -38,10 +38,9 @@ impl Plugin for WindowRenderPlugin {
 }
 
 // Window Structures
-
 pub struct ExtractedWindow {
     pub id: WindowId,
-    pub handle: RawWindowHandleWrapper,
+    pub handle: RawHandleWrapper,
     pub extent: vk::Extent2D,
     pub present_mode: PresentMode,
     pub swapchain_image_index: Option<u32>,
@@ -49,7 +48,7 @@ pub struct ExtractedWindow {
     pub configured: bool
 }
 
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub struct ExtractedWindows {
     pub windows: HashMap<WindowId, ExtractedWindow>
 }
@@ -91,7 +90,7 @@ pub fn extract_windows(
             .entry(window.id())
             .or_insert(ExtractedWindow {
                 id: window.id(),
-                handle: window.raw_window_handle(),
+                handle: window.raw_handle().unwrap(),
                 extent,
                 present_mode: window.present_mode(),
                 swapchain_image_index: None,

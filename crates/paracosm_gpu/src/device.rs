@@ -1,16 +1,18 @@
-use super::Instance;
+use crate::instance::Instance;
 use super::utils::vk_to_string;
 
+use anyhow::{Context, Result};
 use ash::extensions::khr;
 use ash::vk;
-
+use bevy_ecs::system::Resource;
 use bevy_log::prelude::*;
+use bevy_window::RawHandleWrapper;
+use gpu_allocator::{vulkan::*, AllocatorDebugSettings};
+use std::{ops::Deref, os::raw::c_char, sync::{Arc, Mutex}};
 
-use raw_window_handle::HasRawWindowHandle;
+pub use ash::vk::Queue;
 
-use std::{ops::Deref, os::raw::c_char, sync::Arc};
 
-// TODO: Rework queue info once it's clear how they're used
 pub enum QueueFamily {
     GRAPHICS,
     COMPUTE,
@@ -29,21 +31,28 @@ pub struct DeviceQueues {
     pub present_family: Option<u32>
 }
 
+
 pub struct DeviceOptions<'a> {
-    window_handle: Option<&'a dyn HasRawWindowHandle>,
+    raw_handle: Option<RawHandleWrapper>,
     extensions: &'a [*const c_char],
     features: &'a mut vk::PhysicalDeviceFeatures2,
     queues: [(QueueFamily, &'a [f32]); 3],
 }
 
+
 /// Internal data for the Vulkan device.
 ///
 /// [`Device`] is the public API for interacting with the Vulkan device.
 pub struct DeviceInternal {
-    pub instance: Instance,
-    pub physical_device: vk::PhysicalDevice,
-    logical_device: ash::Device,
-    pub queues: DeviceQueues,
+    pub(crate) instance: Instance,
+    pub(crate) physical_device: vk::PhysicalDevice,
+    pub(crate) logical_device: ash::Device,
+
+    pub(crate) queues: DeviceQueues,
+    pub(crate) transfer_queue: Queue,
+    pub(crate) transfer_pool: vk::CommandPool,
+
+    pub(crate) allocator: Option<Mutex<Allocator>>
 }
 
 impl Deref for DeviceInternal {
@@ -58,14 +67,17 @@ impl Drop for DeviceInternal {
     fn drop(&mut self) {
         info!("Dropping Device!");
 
+        self.allocator = None;
+        //drop(allocator);
         unsafe {
+            self.logical_device.destroy_command_pool(self.transfer_pool, None);
             self.logical_device.destroy_device(None);
         }
     }
 }
 
 /// Public API for interacting with the Vulkan device.
-#[derive(Clone)]
+#[derive(Clone, Resource)]
 pub struct Device {
     internal: Arc<DeviceInternal>,
 }
@@ -75,15 +87,13 @@ impl Device {
         instance: Instance,
         selector: fn(vk::PhysicalDeviceProperties2) -> bool,
         options: DeviceOptions
-    ) -> Result<Self, String> {
+    ) -> Result<Self> {
         info!("Creating Vulkan device");
 
         // Get candidate physical devices filtered by selector
-        let physical_devices: Vec<vk::PhysicalDevice> = match unsafe {
+        let physical_devices: Vec<vk::PhysicalDevice> = unsafe {
             instance.enumerate_physical_devices()
-        } {
-            Ok(result) => result,
-            Err(error) => return Err(error.to_string()),
+                .context("Failed to enumerate physical devices")?
         }
         .iter()
         .filter_map(|&physical_device| {
@@ -149,11 +159,10 @@ impl Device {
 
             // Check for presentation support on window, if requested
             // TODO: should consider checking all queue families
-            match options.window_handle {
-                Some(window_handle) => {
-                    //let window_handle = unsafe { window.raw_window_handle().get_handle() };
+            match options.raw_handle.clone() {
+                Some(raw_handle) => {
                     let surface = khr::Surface::new(&instance.entry, &instance);
-                    let surface_handle = match unsafe { ash_window::create_surface(&instance.entry, &instance, window_handle, None) } {
+                    let surface_handle = match unsafe { ash_window::create_surface(&instance.entry, &instance, raw_handle.display_handle, raw_handle.window_handle, None) } {
                         Ok(result) => result,
                         Err(_) => return None
                     };
@@ -216,10 +225,38 @@ impl Device {
 
             Some((physical_device, logical_device, queues))
         });
-        let (physical_device, logical_device, queues) = match result {
-            Some(result) => result,
-            None => return Err("No suitable device found for requested parameters!".to_string()),
-        };
+        let (physical_device, logical_device, queues) = result.context("No suitable device found for requested parameters!")?;
+
+
+        // Get first transfer queue
+        let transfer_queue = (0 < queues.transfer_count).then(|| {
+            unsafe { logical_device.get_device_queue(queues.transfer_family, 0) }
+        }).context(format!("Queue index out of range; index {}, queue count {}", 0, queues.transfer_count))?;
+
+        // Create transfer command pool
+        let create_info = vk::CommandPoolCreateInfo::builder()
+            .queue_family_index(queues.transfer_family)
+            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
+        let transfer_pool = unsafe { logical_device.create_command_pool(&create_info, None)? };
+
+
+        // Create memory allocator
+        let allocator = gpu_allocator::vulkan::Allocator::new(
+            &gpu_allocator::vulkan::AllocatorCreateDesc {
+                instance: instance.deref().deref().clone(),
+                device: logical_device.clone(),
+                physical_device,
+                debug_settings: AllocatorDebugSettings {
+                    log_memory_information: false,
+                    log_leaks_on_shutdown: true,
+                    store_stack_traces: false,
+                    log_allocations: true,
+                    log_frees: true,
+                    log_stack_traces: false
+                },
+                buffer_device_address: true
+            }
+        ).unwrap();
 
         Ok(Self {
             internal: Arc::new(DeviceInternal {
@@ -227,22 +264,28 @@ impl Device {
                 physical_device,
                 logical_device,
                 queues,
+                transfer_queue,
+                transfer_pool,
+                allocator: Some(Mutex::new(allocator))
             }),
         })
     }
 
-    pub fn primary(instance: Instance, window_handle: Option<&dyn HasRawWindowHandle>) -> Result<Self, String> {
+    pub fn primary(instance: Instance, raw_handle: Option<RawHandleWrapper>) -> Result<Self> {
         let mut dynamic_rendering_feature = vk::PhysicalDeviceDynamicRenderingFeatures::builder()
             .dynamic_rendering(true);
+        let mut buffer_device_address_feature = vk::PhysicalDeviceBufferDeviceAddressFeatures::builder()
+            .buffer_device_address(true);
 
         let options = DeviceOptions {
-            window_handle,
+            raw_handle,
             extensions: &[
                 // Enable swapchain extension
                 ash::extensions::khr::Swapchain::name().as_ptr(), //ash::extensions::khr::AccelerationStructure::name().as_ptr()
             ],
             features: &mut vk::PhysicalDeviceFeatures2::builder()
-                .push_next(&mut dynamic_rendering_feature),
+                .push_next(&mut dynamic_rendering_feature)
+                .push_next(&mut buffer_device_address_feature),
             queues: [
                 (QueueFamily::GRAPHICS, &[1.0]),
                 (QueueFamily::COMPUTE, &[1.0]),
@@ -269,11 +312,26 @@ impl Device {
         )
     }
 
-    pub fn graphics_queue(&self, queue_index: u32) -> Result<vk::Queue, String> {
-        match queue_index >= self.queues.graphics_count {
-            true => Err(format!("Queue index out of range; index {}, queue count {}", queue_index, self.queues.graphics_count)),
-            false => unsafe { Ok(self.get_device_queue(self.queues.graphics_family, queue_index)) }
+    pub fn graphics_queue(&self, queue_index: u32) -> Result<Queue> {
+        let queue = (queue_index < self.queues.graphics_count).then(|| {
+            unsafe { self.get_device_queue(self.queues.graphics_family, queue_index) }
+        })
+        .context(format!("Queue index out of range; index {}, queue count {}", queue_index, self.queues.graphics_count))?;
+
+        Ok(queue)
+    }
+
+    pub fn transfer_queue(&self, queue_index: u32) -> Result<Queue> {
+        if queue_index == 0 {
+            return Ok(self.transfer_queue);
         }
+
+        let queue = (queue_index < self.queues.transfer_count).then(|| {
+            unsafe { self.get_device_queue(self.queues.transfer_family, queue_index) }
+        })
+        .context(format!("Queue index out of range; index {}, queue count {}", queue_index, self.queues.transfer_count))?;
+
+        Ok(queue)
     }
 
     #[inline]

@@ -10,9 +10,10 @@ members = [
 
 [dependencies]
 paracosm_gpu = { path = "crates/paracosm_gpu" }
+paracosm_obj = { path = "crates/paracosm_obj" }
 paracosm_render = { path = "crates/paracosm_render" }
 
-bevy = { version = "0.8.0", default-features = false, features = ["dynamic", "bevy_winit"] }
+bevy = { version = "0.9.0", default-features = false, features = ["dynamic", "bevy_winit"] }
 
 # Enable a small amount of optimization in debug mode
 [profile.dev]

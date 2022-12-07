@@ -1,4 +1,4 @@
-use super::Device;
+use crate::device::Device;
 
 use ash::extensions::khr;
 use ash::vk;
@@ -10,8 +10,6 @@ use std::{
     string::String
 };
 
-
-// TODO: cleanup supporting structs, possibly split files
 
 pub(super) struct Swapchain {
     device: Device,

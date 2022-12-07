@@ -1,0 +1,24 @@
+[package]
+name = "paracosm_obj"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["dev"]
+dev = []
+
+[dependencies]
+anyhow = "1.0"
+
+bevy_app = "0.9"
+bevy_asset = "0.9"
+bevy_render = "0.9"
+bevy_utils = "0.9"
+bevy_math = "0.9"
+
+thiserror = "1.0"
+obj-rs = { version = "0.7", default-features = false }
+
+paracosm_render = { path = "../paracosm_render" }

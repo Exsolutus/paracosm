@@ -1,24 +1,33 @@
 use crate::window::{ExtractedWindows, WindowSurfaces};
+use crate::mesh::*;
 
 use ash::vk;
 
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
+use bevy_time::prelude::*;
 use bevy_window::Window;
 
-use paracosm_gpu::{Allocator, Instance, Device, Surface, RasterPipeline};
+use paracosm_gpu::{instance::Instance, device::{Device, Queue}, surface::Surface, resource::pipeline::GraphicsPipeline};
+use paracosm_gpu::glm;
 
 use std::slice;
 
-type RendererData = (Device, vk::Queue, Allocator);
+/// This queue is used to enqueue tasks for the GPU to execute asynchronously.
+#[derive(Resource, Clone, Deref, DerefMut)]
+pub struct RenderQueue(pub Queue);
+
+// Types initialized by renderer
+type RendererData = (Device, RenderQueue);
 
 pub fn initialize_renderer(
     window: &Window,
     instance: Instance
 ) -> Result<RendererData, String> {
     // Create Device
-    let window_handle = unsafe { window.raw_window_handle().get_handle() };
-    let device = match Device::primary(instance.clone(), Some(&window_handle)) {
+    let window_handle = window.raw_handle();
+    let device = match Device::primary(instance.clone(), window_handle) {
         Ok(result) => result,
         Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string())),
     };
@@ -29,18 +38,18 @@ pub fn initialize_renderer(
         Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string()))
     };
 
-    // Create memory allocator
-    let allocator = Allocator::new(device.clone());
-
-    Ok((device, graphics_queue, allocator))
+    Ok((device, RenderQueue(graphics_queue)))
 }
 
+// Renderer main loop
 pub fn render_system(
     device: Res<Device>,
-    queue: Res<vk::Queue>,
-    pipeline: Res<RasterPipeline>,
+    queue: Res<RenderQueue>,
     windows: Res<ExtractedWindows>,
-    mut window_surfaces: NonSendMut<WindowSurfaces>
+    mut window_surfaces: NonSendMut<WindowSurfaces>,
+    pipeline: Res<GraphicsPipeline>,
+    mesh: NonSend<Mesh>,
+    time: NonSend<Time>
 ) {
     {
         //let _span = info_span!("present_frames").entered();
@@ -151,6 +160,28 @@ pub fn render_system(
 
                 // Rendering commands
                 unsafe {
+                    let model = glm::rotate(
+                        &glm::identity(),
+                        time.elapsed_seconds() * glm::radians(&glm::vec1(90.0))[0],
+                        &glm::vec3(0.0, 0.0, 1.0)
+                    );
+                    let view = glm::look_at(
+                        &glm::vec3(2.0, 2.0, 2.0),
+                        &glm::vec3(0.0, 0.0, 0.0),
+                        &glm::vec3(0.0, 0.0, 1.0),
+                    );
+                    let mut proj = glm::perspective(
+                        extent.width as f32 / extent.height as f32,
+                        glm::radians(&glm::vec1(45.0))[0],
+                        0.1,
+                        10.0
+                    );
+                    proj[(1, 1)] *= -1.0;
+                    let render_matrix = proj * view * model;
+
+                    let (_, render_matrix_bytes, _) = render_matrix.as_slice().align_to::<u8>();
+
+
                     let viewports = [
                         vk::Viewport::builder()
                             .width(extent.width as f32)
@@ -160,8 +191,13 @@ pub fn render_system(
                     let scissors = [extent.into()];
                     device.cmd_set_viewport(frame_data.command_buffer, 0, &viewports);
                     device.cmd_set_scissor(frame_data.command_buffer, 0, &scissors);
-                    device.cmd_bind_pipeline(frame_data.command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline); 
-                    device.cmd_draw(frame_data.command_buffer, 3, 1, 0, 0);
+                    device.cmd_bind_pipeline(frame_data.command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline);
+                    match mesh.bind(device.as_ref(), frame_data.command_buffer) {
+                        Ok(_) => (),
+                        Err(error) => return error!("Renderer::render_system: {}", error)
+                    };
+                    device.cmd_push_constants(frame_data.command_buffer, pipeline.pipeline_layout, vk::ShaderStageFlags::VERTEX, 0, render_matrix_bytes);
+                    device.cmd_draw_indexed(frame_data.command_buffer, mesh.index_count() as u32, 1, 0, 0, 0);
                 }
 
                 // End rendering
@@ -203,13 +239,13 @@ pub fn render_system(
                     .signal_semaphores(slice::from_ref(&frame_data.render_semaphore))
                     .command_buffers(slice::from_ref(&frame_data.command_buffer))
                     .build();
-                match unsafe { device.queue_submit(*queue, slice::from_ref(&submit_info), frame_data.in_flight_fence) } {
+                match unsafe { device.queue_submit(**queue, slice::from_ref(&submit_info), frame_data.in_flight_fence) } {
                     Err(error) => return error!("Renderer::render_system: {}", error),
                     _ => ()
                 };
 
                 // // Present rendered image to surface
-                match surface.queue_present(*queue, slice::from_ref(&image_index)) {
+                match surface.queue_present(**queue, slice::from_ref(&image_index)) {
                     Err(error) => return error!("Renderer::render_system: {}", error),
                     _ => ()
                 };

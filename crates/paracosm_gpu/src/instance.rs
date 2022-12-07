@@ -1,6 +1,7 @@
 use ash::{extensions::ext::DebugUtils, vk};
 
 use bevy_log::prelude::*;
+use bevy_ecs::system::Resource;
 
 use std::{
     ffi::CStr,
@@ -13,7 +14,7 @@ use std::{
 ///
 /// [`Instance`] is the public API for interacting with the Vulkan instance.
 pub struct InstanceInternal {
-    pub entry: ash::Entry,
+    pub(crate) entry: ash::Entry,
     instance: ash::Instance,
 
     #[cfg(debug_assertions)]
@@ -57,7 +58,7 @@ impl Drop for InstanceInternal {
 }
 
 /// Public API for interacting with the Vulkan instance.
-#[derive(Clone)]
+#[derive(Clone, Resource)]
 pub struct Instance {
     internal: Arc<InstanceInternal>,
 }
@@ -158,7 +159,7 @@ unsafe extern "system" fn vulkan_debug_utils_callback(
         _ => "[Unknown]",
     };
     let message = CStr::from_ptr((*p_callback_data).p_message);
-    println!("{}{}{:?}", severity, types, message);
+    println!("{}{}\n{:?}", severity, types, message);
 
     vk::FALSE
 }
