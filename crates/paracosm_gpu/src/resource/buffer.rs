@@ -1,33 +1,104 @@
 use crate::device::Device;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use ash::vk;
 
-use gpu_allocator::{vulkan::{
-    Allocation,
-    AllocationCreateDesc
-}, MemoryLocation};
+use bevy_log::prelude::*;
 
-use std::{slice, cell::RefCell};
+use gpu_allocator::vulkan::*;
+
+use std::slice;
+use std::ptr::copy_nonoverlapping as memcpy;
+
+// re-export
+pub use vk::BufferUsageFlags;
+pub use gpu_allocator::MemoryLocation;
 
 
 
-pub use vk::{BufferCreateInfo, BufferUsageFlags, SharingMode};
+pub struct BufferInfo {
+    pub size: usize,
+    pub usage: vk::BufferUsageFlags,
+    pub memory_location: MemoryLocation,
+    pub alignment: Option<u64>
+}
 
-#[derive(Debug)]
+//#[derive(Debug)]
 pub struct Buffer {
-    pub(crate) buffer: vk::Buffer,
-    pub(crate) allocation: RefCell<Allocation>,
+    device: Device,
+    info: BufferInfo,
+    pub buffer: vk::Buffer,
+    pub(crate) allocation: Option<Allocation>,
+}
+
+impl BufferInfo {
+    pub fn new(size: usize, usage: BufferUsageFlags, memory_location: MemoryLocation) -> Self {
+        Self {
+            size,
+            usage,
+            memory_location,
+            alignment: None
+        }
+    }
+}
+
+impl Buffer {
+    pub fn write_buffer<T>(
+        &self,
+        data: &Vec<T>
+    ) -> Result<()> {
+        let allocation = match &self.allocation {
+            Some(value) => value,
+            None => bail!("Buffer has no active allocation")
+        };
+        let memory = match allocation.mapped_ptr() {
+            Some(value) => value.as_ptr(),
+            None => bail!("Buffer allocation is not host visible")
+        };
+        unsafe { memcpy(data.as_ptr(), memory.cast(), data.len()) };
+
+        Ok(())
+    }
+}
+
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        unsafe {
+            match self.allocation.take() {
+                Some(value) => {
+                    match self.device.allocator
+                        .as_ref()
+                        .unwrap()
+                        .lock()
+                        .unwrap()
+                        .free(value)
+                    {
+                        Ok(_) => (),
+                        Err(error) => debug!("{}", error.to_string())
+                    };
+                },
+                None => ()
+            };
+
+            self.device.destroy_buffer(self.buffer, None);
+        }
+    }
 }
 
 impl Device {
     pub fn create_buffer(
         &self, 
         name: &str, 
-        info: vk::BufferCreateInfo,
-        location: MemoryLocation
+        info: BufferInfo,
+        data: Option<&[u8]>
     ) -> Result<Buffer> {
-        let buffer = unsafe { self.logical_device.create_buffer(&info, None)? };
+        let create_info = &vk::BufferCreateInfo::builder()
+            .size(info.size as u64)
+            .usage(info.usage)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .build();
+
+        let buffer = unsafe { self.logical_device.create_buffer(create_info, None)? };
         let requirements = unsafe { self.get_buffer_memory_requirements(buffer) };
 
         let allocation = self.allocator
@@ -38,15 +109,17 @@ impl Device {
             .allocate(&AllocationCreateDesc {
                 name,
                 requirements,
-                location,
+                location: info.memory_location,
                 linear: true
             })?;
 
         unsafe { self.bind_buffer_memory(buffer, allocation.memory(), allocation.offset())? };
 
         Ok(Buffer {
+            device: self.clone(),
+            info,
             buffer,
-            allocation: RefCell::new(allocation)
+            allocation: Some(allocation)
         })
     }
 
@@ -54,7 +127,7 @@ impl Device {
         &self,
         source: &Buffer,
         destination: &Buffer,
-        size: vk::DeviceSize
+        size: usize
     ) -> Result<()> {
         // Create temporary transfer command buffer
         let alloc_info = vk::CommandBufferAllocateInfo::builder()
@@ -69,7 +142,7 @@ impl Device {
                 .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
             self.begin_command_buffer(command_buffer, &begin_info)?;
 
-            let regions = vk::BufferCopy::builder().size(size);
+            let regions = vk::BufferCopy::builder().size(size as u64);
             self.cmd_copy_buffer(command_buffer, source.buffer, destination.buffer, slice::from_ref(&regions));
 
             self.end_command_buffer(command_buffer)?;
@@ -89,23 +162,6 @@ impl Device {
             self.free_command_buffers(self.transfer_pool, &[command_buffer]);
         }
         
-
-        Ok(())
-    }
-
-    pub fn destroy_buffer(
-        &self, 
-        buffer: &Buffer
-    ) -> Result<()> {
-        unsafe {
-            self.allocator
-                .as_ref()
-                .unwrap()
-                .lock()
-                .unwrap()
-                .free(buffer.allocation.take())?;
-            self.logical_device.destroy_buffer(buffer.buffer, None);
-        }
 
         Ok(())
     }

@@ -1,16 +1,18 @@
 mod extract_param;
 mod extract_resource;
+pub mod mesh;
 mod raster;
+mod render_resource;
 mod window;
 
-use raster::*;
-
-use paracosm_gpu::{glm, instance::Instance, raster::RasterPipeline, mesh::{Vertex, Mesh}};
-
-use crate::window::WindowRenderPlugin;
-
 pub use extract_param::Extract;
+use mesh::*;
+use raster::*;
+use window::WindowRenderPlugin;
 
+use paracosm_gpu::{glm, instance::Instance, resource::pipeline::*};
+
+use ash::vk;
 use bevy_app::{App, AppLabel, Plugin};
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
@@ -19,6 +21,7 @@ use bevy_utils;
 
 use std::{
     any::TypeId,
+    borrow::Cow,
     ops::{Deref, DerefMut},
     path::Path,
 };
@@ -114,23 +117,86 @@ impl Plugin for RenderPlugin {
         // Create mesh pipeline
         let vertex_spv_path = Path::new("./shaders/vert.spv");
         let fragment_spv_path = Path::new("./shaders/frag.spv");
-        let triangle_pipeline = match RasterPipeline::new(device.clone(), vertex_spv_path, fragment_spv_path) {
+        let vertex_module = match device.create_shader_module(vertex_spv_path) {
+            Ok(result) => result,
+            Err(error) => panic!("Failed to create vertex shader module: {}", error.to_string())
+        };
+        let fragment_module = match device.create_shader_module(fragment_spv_path) {
+            Ok(result) => result,
+            Err(error) => panic!("Failed to create fragment shader module: {}", error.to_string())
+        };
+        let binding_description = Vertex::binding_description();
+        let attribute_descriptions = Vertex::attribute_descriptions().to_vec();
+
+        let pipeline_info = GraphicsPipelineInfo {
+            vertex_stage_info: VertexStageInfo {
+                shader: vertex_module,
+                entry_point: Cow::from("main\0"),
+                vertex_input_desc: VertexInputDescription {
+                    binding_description,
+                    attribute_descriptions
+                }
+            },
+            fragment_stage_info: FragmentStageInfo {
+                shader: fragment_module,
+                entry_point: Cow::from("main\0"),
+                color_blend_states: vec![
+                    vk::PipelineColorBlendAttachmentState::builder()
+                        .blend_enable(false)
+                        .src_color_blend_factor(vk::BlendFactor::SRC_COLOR)
+                        .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_DST_COLOR)
+                        .color_blend_op(vk::BlendOp::ADD)
+                        .src_alpha_blend_factor(vk::BlendFactor::ZERO)
+                        .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
+                        .alpha_blend_op(vk::BlendOp::ADD)
+                        .color_write_mask(vk::ColorComponentFlags::RGBA)
+                        .build()
+                ],
+                target_states: vec![
+                    vk::Format::B8G8R8A8_UNORM
+                ]
+            },
+            input_assembly_state: vk::PipelineInputAssemblyStateCreateInfo::builder()
+                .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+                .primitive_restart_enable(false)
+                .build(),
+            rasterization_state: vk::PipelineRasterizationStateCreateInfo::builder()
+                .depth_clamp_enable(false)
+                .rasterizer_discard_enable(false)
+                .polygon_mode(vk::PolygonMode::FILL)
+                .line_width(1.0)
+                .cull_mode(vk::CullModeFlags::NONE)
+                .front_face(vk::FrontFace::CLOCKWISE)
+                .depth_bias_enable(false)
+                .depth_bias_constant_factor(0.0)
+                .depth_bias_clamp(0.0)
+                .depth_bias_slope_factor(0.0)
+                .build(),
+            multisample_state: vk::PipelineMultisampleStateCreateInfo::builder()
+                .rasterization_samples(vk::SampleCountFlags::TYPE_1)
+                .build(),
+            descriptor_sets: vec![]
+        };
+        
+        let mesh_pipeline = match device.create_graphics_pipeline(pipeline_info) {
             Ok(result) => result,
             Err(error) => panic!("Pipeline creation failed: {}", error.to_string())
         };
 
+        unsafe {
+            device.destroy_shader_module(vertex_module, None);
+            device.destroy_shader_module(fragment_module, None);
+        }
+
         // TODO: add proper asset management
         // Create triangle mesh
-        let mut triangle_mesh = Mesh::new(device.clone(), 
-            vec![
-                Vertex::new(glm::vec3(-0.5, -0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(1.0, 0.0, 0.0)),
-                Vertex::new(glm::vec3(0.5, -0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)),
-                Vertex::new(glm::vec3(0.5, 0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 0.0, 1.0)),
-                Vertex::new(glm::vec3(-0.5, 0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(1.0, 1.0, 1.0)),
-            ],
-            vec![0, 1, 2, 2, 3, 0]
-        ).unwrap();
-        triangle_mesh.upload().unwrap();
+        let mut mesh = Mesh::new();
+        mesh.insert_vertex(Vertex::new(glm::vec3(-0.5, -0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(1.0, 0.0, 0.0)));
+        mesh.insert_vertex(Vertex::new(glm::vec3(0.5, -0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
+        mesh.insert_vertex(Vertex::new(glm::vec3(0.5, 0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 0.0, 1.0)));
+        mesh.insert_vertex(Vertex::new(glm::vec3(-0.5, 0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(1.0, 1.0, 1.0)));
+        mesh.set_indices(vec![0, 1, 2, 2, 3, 0]);
+        mesh.upload(device.clone()).unwrap();
 
 
 
@@ -161,8 +227,8 @@ impl Plugin for RenderPlugin {
             .insert_resource(instance)
             .insert_resource(device)
             .insert_resource(queue)
-            .insert_resource(triangle_pipeline)
-            .insert_non_send_resource(triangle_mesh);
+            .insert_resource(mesh_pipeline)
+            .insert_non_send_resource(mesh);
             
         app.add_sub_app(RenderApp, render_app, move |app_world, render_app| {
             #[cfg(not(feature = "trace"))]

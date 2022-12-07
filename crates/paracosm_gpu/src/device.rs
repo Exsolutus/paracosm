@@ -7,13 +7,12 @@ use ash::vk;
 use bevy_ecs::system::Resource;
 use bevy_log::prelude::*;
 use bevy_window::RawHandleWrapper;
-use gpu_allocator::{vulkan as vk_alloc, AllocatorDebugSettings};
+use gpu_allocator::{vulkan::*, AllocatorDebugSettings};
 use std::{ops::Deref, os::raw::c_char, sync::{Arc, Mutex}};
 
 pub use ash::vk::Queue;
 
 
-// TODO: Rework queue info once it's clear how they're used
 pub enum QueueFamily {
     GRAPHICS,
     COMPUTE,
@@ -53,7 +52,7 @@ pub struct DeviceInternal {
     pub(crate) transfer_queue: Queue,
     pub(crate) transfer_pool: vk::CommandPool,
 
-    pub(crate) allocator: Option<Mutex<vk_alloc::Allocator>>
+    pub(crate) allocator: Option<Mutex<Allocator>>
 }
 
 impl Deref for DeviceInternal {

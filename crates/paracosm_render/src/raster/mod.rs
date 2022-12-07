@@ -1,4 +1,5 @@
 use crate::window::{ExtractedWindows, WindowSurfaces};
+use crate::mesh::*;
 
 use ash::vk;
 
@@ -8,7 +9,7 @@ use bevy_log::prelude::*;
 use bevy_time::prelude::*;
 use bevy_window::Window;
 
-use paracosm_gpu::{instance::Instance, device::{Device, Queue}, surface::Surface, raster::RasterPipeline, mesh::Mesh};
+use paracosm_gpu::{instance::Instance, device::{Device, Queue}, surface::Surface, resource::pipeline::GraphicsPipeline};
 use paracosm_gpu::glm;
 
 use std::slice;
@@ -46,7 +47,7 @@ pub fn render_system(
     queue: Res<RenderQueue>,
     windows: Res<ExtractedWindows>,
     mut window_surfaces: NonSendMut<WindowSurfaces>,
-    pipeline: Res<RasterPipeline>,
+    pipeline: Res<GraphicsPipeline>,
     mesh: NonSend<Mesh>,
     time: NonSend<Time>
 ) {
@@ -191,7 +192,7 @@ pub fn render_system(
                     device.cmd_set_viewport(frame_data.command_buffer, 0, &viewports);
                     device.cmd_set_scissor(frame_data.command_buffer, 0, &scissors);
                     device.cmd_bind_pipeline(frame_data.command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline);
-                    match mesh.bind(frame_data.command_buffer) {
+                    match mesh.bind(device.as_ref(), frame_data.command_buffer) {
                         Ok(_) => (),
                         Err(error) => return error!("Renderer::render_system: {}", error)
                     };
