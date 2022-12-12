@@ -5,21 +5,11 @@ use ash::vk;
 use ash::util;
 
 use std::{
-    borrow::Cow,
     fs::File,
     path::Path
 };
 
 
-
-pub struct Shader {
-    device: Device,
-    pub(crate) module: vk::ShaderModule,
-}
-
-pub enum Source {
-    SprirV(Cow<'static, [u32]>)
-}
 
 
 impl Device {

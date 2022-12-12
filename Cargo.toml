@@ -1,9 +1,12 @@
 [workspace]
 members = [
+    "assets/rust_shaders",
+    "assets/rust_shaders_shared",
+
     "crates/bin/test_example",
 
     "crates/lib/paracosm_gpu",
-    "crates/lib/paracosm_render"
+    "crates/lib/paracosm_render",
 ]
 
 [workspace.package]

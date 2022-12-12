@@ -64,6 +64,9 @@ impl Buffer {
 impl Drop for Buffer {
     fn drop(&mut self) {
         unsafe {
+            // TODO: look into waiting on queue idle instead
+            self.device.device_wait_idle().unwrap();
+
             match self.allocation.take() {
                 Some(value) => {
                     match self.device.allocator

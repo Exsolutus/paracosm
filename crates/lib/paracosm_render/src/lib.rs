@@ -8,12 +8,15 @@ mod window;
 pub use extract_param::Extract;
 use mesh::*;
 use raster::*;
+pub use render_resource::shader::*;
 use window::WindowRenderPlugin;
+use render_resource::pipeline::PipelineManagerPlugin;
 
-use paracosm_gpu::{glm, instance::Instance, resource::pipeline::*};
+use paracosm_gpu::{instance::Instance, resource::pipeline::GraphicsPipeline};
+use rust_shaders_shared::{Vertex, Vec4, Mat4};
 
-use ash::vk;
 use bevy_app::{App, AppLabel, Plugin};
+use bevy_asset::{AddAsset, AssetServer, Handle};
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use bevy_time::prelude::*;
@@ -21,7 +24,6 @@ use bevy_utils;
 
 use std::{
     any::TypeId,
-    borrow::Cow,
     ops::{Deref, DerefMut},
     path::Path,
 };
@@ -91,6 +93,12 @@ pub struct RenderPlugin;
 impl Plugin for RenderPlugin {
     /// Initializes the renderer, sets up the [`RenderStage`](RenderStage) and creates the rendering sub-app.
     fn build(&self, app: &mut App) {
+        // Register renderer asset types
+        app.add_asset::<Shader>()
+            .add_debug_asset::<Shader>()
+            .init_asset_loader::<ShaderLoader>()
+            .init_debug_asset_loader::<ShaderLoader>();
+
         // Get Vulkan instance from main app
         let instance = app
             .world
@@ -113,94 +121,27 @@ impl Plugin for RenderPlugin {
             Err(error) => panic!("Renderer initialization failed: {}", error.to_string())
         };
 
-        // TODO: add proper pipeline management
-        // Create mesh pipeline
-        let vertex_spv_path = Path::new("./shaders/vert.spv");
-        let fragment_spv_path = Path::new("./shaders/frag.spv");
-        let vertex_module = match device.create_shader_module(vertex_spv_path) {
-            Ok(result) => result,
-            Err(error) => panic!("Failed to create vertex shader module: {}", error.to_string())
-        };
-        let fragment_module = match device.create_shader_module(fragment_spv_path) {
-            Ok(result) => result,
-            Err(error) => panic!("Failed to create fragment shader module: {}", error.to_string())
-        };
-        let binding_description = Vertex::binding_description();
-        let attribute_descriptions = Vertex::attribute_descriptions().to_vec();
-
-        let pipeline_info = GraphicsPipelineInfo {
-            vertex_stage_info: VertexStageInfo {
-                shader: vertex_module,
-                entry_point: Cow::from("main\0"),
-                vertex_input_desc: VertexInputDescription {
-                    binding_description,
-                    attribute_descriptions
-                }
-            },
-            fragment_stage_info: FragmentStageInfo {
-                shader: fragment_module,
-                entry_point: Cow::from("main\0"),
-                color_blend_states: vec![
-                    vk::PipelineColorBlendAttachmentState::builder()
-                        .blend_enable(false)
-                        .src_color_blend_factor(vk::BlendFactor::SRC_COLOR)
-                        .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_DST_COLOR)
-                        .color_blend_op(vk::BlendOp::ADD)
-                        .src_alpha_blend_factor(vk::BlendFactor::ZERO)
-                        .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
-                        .alpha_blend_op(vk::BlendOp::ADD)
-                        .color_write_mask(vk::ColorComponentFlags::RGBA)
-                        .build()
-                ],
-                target_states: vec![
-                    vk::Format::B8G8R8A8_UNORM
-                ]
-            },
-            input_assembly_state: vk::PipelineInputAssemblyStateCreateInfo::builder()
-                .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-                .primitive_restart_enable(false)
-                .build(),
-            rasterization_state: vk::PipelineRasterizationStateCreateInfo::builder()
-                .depth_clamp_enable(false)
-                .rasterizer_discard_enable(false)
-                .polygon_mode(vk::PolygonMode::FILL)
-                .line_width(1.0)
-                .cull_mode(vk::CullModeFlags::NONE)
-                .front_face(vk::FrontFace::CLOCKWISE)
-                .depth_bias_enable(false)
-                .depth_bias_constant_factor(0.0)
-                .depth_bias_clamp(0.0)
-                .depth_bias_slope_factor(0.0)
-                .build(),
-            multisample_state: vk::PipelineMultisampleStateCreateInfo::builder()
-                .rasterization_samples(vk::SampleCountFlags::TYPE_1)
-                .build(),
-            descriptor_sets: vec![]
-        };
-        
-        let mesh_pipeline = match device.create_graphics_pipeline(pipeline_info) {
-            Ok(result) => result,
-            Err(error) => panic!("Pipeline creation failed: {}", error.to_string())
-        };
-
-        unsafe {
-            device.destroy_shader_module(vertex_module, None);
-            device.destroy_shader_module(fragment_module, None);
-        }
+        // TODO: add shader loader
+        // Load shader asset(s)
+        let asset_server = app.world.get_resource::<AssetServer>().unwrap();
+        let shader: Handle<Shader> = asset_server.load("rust_shaders/src/test.rs");
+        app.insert_resource(ShaderHandle(shader));
 
         // TODO: add proper asset management
         // Create triangle mesh
         let mut mesh = Mesh::new();
-        mesh.insert_vertex(Vertex::new(glm::vec3(-0.5, -0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(1.0, 0.0, 0.0)));
-        mesh.insert_vertex(Vertex::new(glm::vec3(0.5, -0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
-        mesh.insert_vertex(Vertex::new(glm::vec3(0.5, 0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 0.0, 1.0)));
-        mesh.insert_vertex(Vertex::new(glm::vec3(-0.5, 0.5, 0.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(1.0, 1.0, 1.0)));
+        mesh.insert_vertex(Vertex::new(Vec4::new(-0.5, -0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(1.0, 0.0, 0.0, 0.0)));
+        mesh.insert_vertex(Vertex::new(Vec4::new(0.5, -0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(0.0, 1.0, 0.0, 0.0)));
+        mesh.insert_vertex(Vertex::new(Vec4::new(0.5, 0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(0.0, 0.0, 1.0, 0.0)));
+        mesh.insert_vertex(Vertex::new(Vec4::new(-0.5, 0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(1.0, 1.0, 1.0, 0.0)));
         mesh.set_indices(vec![0, 1, 2, 2, 3, 0]);
         mesh.upload(device.clone()).unwrap();
 
 
 
         app.init_resource::<ScratchMainWorld>();
+        
+        app.insert_resource(device.clone());
 
         // Create render app
         let mut render_app = App::empty();
@@ -227,8 +168,7 @@ impl Plugin for RenderPlugin {
             .insert_resource(instance)
             .insert_resource(device)
             .insert_resource(queue)
-            .insert_resource(mesh_pipeline)
-            .insert_non_send_resource(mesh);
+            .insert_resource(mesh);
             
         app.add_sub_app(RenderApp, render_app, move |app_world, render_app| {
             #[cfg(not(feature = "trace"))]
@@ -241,6 +181,13 @@ impl Plugin for RenderPlugin {
 
                 let time = app_world.get_resource::<Time>().unwrap().clone();
                 render_app.insert_non_send_resource(time);
+
+                match app_world.remove_resource::<GraphicsPipeline>() {
+                    Some(result) => {
+                        render_app.insert_resource(result);
+                    },
+                    None => ()
+                }
 
                 // extract
                 extract(app_world, render_app);
@@ -275,7 +222,8 @@ impl Plugin for RenderPlugin {
         });
 
         // Add supporting plugins
-        app.add_plugin(WindowRenderPlugin);
+        app.add_plugin(WindowRenderPlugin)
+            .add_plugin(PipelineManagerPlugin);
     }
 }
 

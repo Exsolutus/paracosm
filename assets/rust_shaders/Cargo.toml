@@ -1,0 +1,20 @@
+[package]
+name = "rust_shaders"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "test" # Shader name
+path = "src/test.rs" # Shader path
+crate-type = ["lib", "dylib"]
+test = false
+doctest = false
+
+
+[dependencies]
+rust_shaders_shared = { path = "../rust_shaders_shared", default-features = false }
+spirv-std = { git = "https://github.com/EmbarkStudios/rust-gpu", features = ["glam"] }
+#macaw = { version = "0.17.2", default-features = false, features = ["libm"] }
+
+[build-dependencies]
+regex = "1.7.0"

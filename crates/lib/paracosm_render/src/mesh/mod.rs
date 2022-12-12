@@ -1,16 +1,16 @@
-mod vertex;
-pub use vertex::Vertex;
-
 use paracosm_gpu::{resource::buffer::*, device::Device};
 
 use anyhow::{Result, bail};
 use ash::vk;
+use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use std::mem::size_of;
 use std::slice;
 
+use rust_shaders_shared::Vertex;
 
 
+#[derive(Resource)]
 pub struct Mesh {
     vertices: Vec<Vertex>,
     indices: Vec<u16>,
@@ -28,19 +28,17 @@ impl Mesh {
         }
     }
 
-    // pub fn new(
-    //     device: Device,
-    //     vertices: Vec<Vertex>,
-    //     indices: Vec<u16>
-    // ) -> Result<Self> {
-    //     Ok(Self {
-    //         device,
-    //         vertices,
-    //         indices,
-    //         vertex_buffer: None,
-    //         index_buffer: None
-    //     })
-    // }
+    pub fn with_geometry(
+        vertices: Vec<Vertex>,
+        indices: Vec<u16>
+    ) -> Result<Self> {
+        Ok(Self {
+            vertices,
+            indices,
+            vertex_buffer: None,
+            index_buffer: None
+        })
+    }
 
     pub fn insert_vertex(&mut self, vertex: Vertex) {
         self.vertices.push(vertex);
@@ -106,14 +104,5 @@ impl Mesh {
 impl Drop for Mesh {
     fn drop(&mut self) {
         info!("Dropping Mesh!");
-
-        // match self.vertex_buffer {
-        //     Some(mut value) => self.device.destroy_buffer(&mut value).unwrap(),
-        //     None => ()
-        // }
-        // match self.index_buffer {
-        //     Some(mut value) => self.device.destroy_buffer(&mut value).unwrap(),
-        //     None => ()
-        // }
     }
 }

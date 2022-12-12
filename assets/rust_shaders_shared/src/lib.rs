@@ -1,19 +1,31 @@
-use ash::vk;
-use nalgebra_glm::*;
+#![cfg_attr(target_arch = "spirv", no_std)]
 
-use std::mem::size_of;
+// Rust-SpirV shared source
 
+pub use spirv_std::glam::{Mat4, Vec4};
 
+#[derive(Copy, Clone)]
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct Vertex {
-    position: Vec3,
-    normal: Vec3,
-    color: Vec3,
+pub struct ShaderConstants {
+    pub render_matrix: Mat4
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Vertex {
+    pub position: Vec4,
+    pub normal: Vec4,
+    pub color: Vec4,
+}
+
+// Rust only source
+
+#[cfg(not(target_arch = "spirv"))] use std::mem::size_of;
+#[cfg(not(target_arch = "spirv"))] use ash::vk;
+
+#[cfg(not(target_arch = "spirv"))]
 impl Vertex {
-    pub fn new(position: Vec3, normal: Vec3, color: Vec3) -> Self {
+    pub fn new(position: Vec4, normal: Vec4, color: Vec4) -> Self {
         Self {
             position,
             normal,
@@ -40,13 +52,13 @@ impl Vertex {
             .binding(0)
             .location(1)
             .format(vk::Format::R32G32B32_SFLOAT)
-            .offset(size_of::<Vec3>() as u32)
+            .offset(size_of::<Vec4>() as u32)
             .build();
         let color = vk::VertexInputAttributeDescription::builder()
             .binding(0)
             .location(2)
             .format(vk::Format::R32G32B32_SFLOAT)
-            .offset(2 * size_of::<Vec3>() as u32)
+            .offset(2 * size_of::<Vec4>() as u32)
             .build();
 
         [position, normal, color]
