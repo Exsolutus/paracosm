@@ -16,7 +16,7 @@ use std::{
 /// A [`GraphicsPipeline`] containing shader stages, resource bindings, and vertex information.
 /// 
 /// Created by calling [`Device::create_graphics_pipeline`].
-#[derive(Resource)]
+#[derive(Clone, Resource)]
 pub struct GraphicsPipeline {
     device: Device,
     descriptor_set_layout: vk::DescriptorSetLayout,
@@ -38,6 +38,7 @@ impl Drop for GraphicsPipeline {
 }
 
 // TODO: implement pipeline for Compute shaders
+#[derive(Clone, Resource)]
 pub struct ComputePipeline {
     device: Device
 }

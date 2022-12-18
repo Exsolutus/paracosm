@@ -6,21 +6,19 @@ fn main() {
 }
 
 fn select_shader() {
-    // Get shader to compile from environment variable
-    let shader_env = match env::var("BUILD_SHADER") {
+    // Get target shader from environment variable
+    let target_shader = match env::var("TARGET_SHADER") {
         Ok(value) => value,
-        Err(_) => return println!("BUILD_SHADER environment variable not valid")
+        Err(_) => return println!("TARGET_SHADER environment variable not valid")
     };
-    let shader_file = Path::new(&shader_env);
+    let shader_file = Path::new(&target_shader);
     let name = shader_file.file_stem().unwrap().to_str().unwrap();
     let ext = Path::new(&shader_file).extension().unwrap().to_str().unwrap();
     debug_assert_eq!(ext, "rs");
 
     // Get Cargo.toml content to edit
     let root = env::var("CARGO_MANIFEST_DIR").unwrap();
-    println!("test: {}", root);
     let cargo_toml = Path::new(&root.as_str()).join("Cargo.toml");
-    println!("test: {}", cargo_toml.clone().display());
     let content = fs::read_to_string(&cargo_toml)
         .expect("Something went wrong reading the Cargo.toml file.");
     
@@ -32,8 +30,6 @@ fn select_shader() {
 
     let with_name = name_regex.replace(&content, format!("name = \"{}\" # Shader name", name));
     let with_path = path_regex.replace(&with_name, format!("path = \"src/{}\" # Shader path", shader_file.display()));
-
-    println!("test: {}", with_path.clone());
 
     // Write changes to Cargo.toml file
     fs::write(cargo_toml, with_path.as_bytes())

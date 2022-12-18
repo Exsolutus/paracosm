@@ -8,15 +8,18 @@ mod window;
 pub use extract_param::Extract;
 use mesh::*;
 use raster::*;
-pub use render_resource::shader::*;
+pub use render_resource::{
+    pipeline::*,
+    shader::*
+};
 use window::WindowRenderPlugin;
 use render_resource::pipeline::PipelineManagerPlugin;
 
 use paracosm_gpu::{instance::Instance, resource::pipeline::GraphicsPipeline};
-use rust_shaders_shared::{Vertex, Vec4, Mat4};
+use rust_shaders_shared::{Vertex, Vec4};
 
 use bevy_app::{App, AppLabel, Plugin};
-use bevy_asset::{AddAsset, AssetServer, Handle};
+use bevy_asset::{Assets, AssetServer};
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use bevy_time::prelude::*;
@@ -25,7 +28,6 @@ use bevy_utils;
 use std::{
     any::TypeId,
     ops::{Deref, DerefMut},
-    path::Path,
 };
 
 
@@ -93,12 +95,6 @@ pub struct RenderPlugin;
 impl Plugin for RenderPlugin {
     /// Initializes the renderer, sets up the [`RenderStage`](RenderStage) and creates the rendering sub-app.
     fn build(&self, app: &mut App) {
-        // Register renderer asset types
-        app.add_asset::<Shader>()
-            .add_debug_asset::<Shader>()
-            .init_asset_loader::<ShaderLoader>()
-            .init_debug_asset_loader::<ShaderLoader>();
-
         // Get Vulkan instance from main app
         let instance = app
             .world
@@ -121,20 +117,22 @@ impl Plugin for RenderPlugin {
             Err(error) => panic!("Renderer initialization failed: {}", error.to_string())
         };
 
-        // TODO: add shader loader
-        // Load shader asset(s)
-        let asset_server = app.world.get_resource::<AssetServer>().unwrap();
-        let shader: Handle<Shader> = asset_server.load("rust_shaders/src/test.rs");
-        app.insert_resource(ShaderHandle(shader));
+        // Add render resource plugins
+        app.add_plugin(ShaderManagerPlugin)
+            .add_plugin(PipelineManagerPlugin);
+        
+
 
         // TODO: add proper asset management
         // Create triangle mesh
-        let mut mesh = Mesh::new();
-        mesh.insert_vertex(Vertex::new(Vec4::new(-0.5, -0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(1.0, 0.0, 0.0, 0.0)));
-        mesh.insert_vertex(Vertex::new(Vec4::new(0.5, -0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(0.0, 1.0, 0.0, 0.0)));
-        mesh.insert_vertex(Vertex::new(Vec4::new(0.5, 0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(0.0, 0.0, 1.0, 0.0)));
-        mesh.insert_vertex(Vertex::new(Vec4::new(-0.5, 0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(1.0, 1.0, 1.0, 0.0)));
-        mesh.set_indices(vec![0, 1, 2, 2, 3, 0]);
+        let vertices = vec![
+            Vertex::new(Vec4::new(-0.5, -0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(1.0, 0.0, 0.0, 0.0)),
+            Vertex::new(Vec4::new(0.5, -0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(0.0, 1.0, 0.0, 0.0)),
+            Vertex::new(Vec4::new(0.5, 0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(0.0, 0.0, 1.0, 0.0)),
+            Vertex::new(Vec4::new(-0.5, 0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(1.0, 1.0, 1.0, 0.0)),
+        ];
+        let indices = vec![0, 1, 2, 2, 3, 0];
+        let mut mesh = Mesh::with_geometry(vertices, indices);
         mesh.upload(device.clone()).unwrap();
 
 
@@ -182,12 +180,17 @@ impl Plugin for RenderPlugin {
                 let time = app_world.get_resource::<Time>().unwrap().clone();
                 render_app.insert_non_send_resource(time);
 
-                match app_world.remove_resource::<GraphicsPipeline>() {
-                    Some(result) => {
-                        render_app.insert_resource(result);
-                    },
-                    None => ()
-                }
+                let pipelines = app_world.get_resource::<Assets<Pipeline>>().unwrap();
+                let pipeline_manager = app_world.get_resource::<PipelineManager>().unwrap();
+                if let Some(pipeline_handle) = pipeline_manager.pipelines.get("test.rs") {
+                    if let Some(Pipeline::Graphics(pipeline)) = pipelines.get(pipeline_handle){
+                        if let None = render_app.world.get_resource::<GraphicsPipeline>() {
+                            render_app.insert_resource(pipeline.clone());
+                        }
+                    };
+                };
+
+                
 
                 // extract
                 extract(app_world, render_app);
@@ -222,8 +225,7 @@ impl Plugin for RenderPlugin {
         });
 
         // Add supporting plugins
-        app.add_plugin(WindowRenderPlugin)
-            .add_plugin(PipelineManagerPlugin);
+        app.add_plugin(WindowRenderPlugin);
     }
 }
 

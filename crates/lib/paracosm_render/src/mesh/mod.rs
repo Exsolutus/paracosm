@@ -31,13 +31,13 @@ impl Mesh {
     pub fn with_geometry(
         vertices: Vec<Vertex>,
         indices: Vec<u16>
-    ) -> Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             vertices,
             indices,
             vertex_buffer: None,
             index_buffer: None
-        })
+        }
     }
 
     pub fn insert_vertex(&mut self, vertex: Vertex) {

@@ -272,10 +272,13 @@ impl Device {
     }
 
     pub fn primary(instance: Instance, raw_handle: Option<RawHandleWrapper>) -> Result<Self> {
+        let mut vulkan_memory_model_feature = vk::PhysicalDeviceVulkanMemoryModelFeatures::builder()
+            .vulkan_memory_model(true);
         let mut dynamic_rendering_feature = vk::PhysicalDeviceDynamicRenderingFeatures::builder()
             .dynamic_rendering(true);
         let mut buffer_device_address_feature = vk::PhysicalDeviceBufferDeviceAddressFeatures::builder()
             .buffer_device_address(true);
+
 
         let options = DeviceOptions {
             raw_handle,
@@ -284,6 +287,7 @@ impl Device {
                 ash::extensions::khr::Swapchain::name().as_ptr(), //ash::extensions::khr::AccelerationStructure::name().as_ptr()
             ],
             features: &mut vk::PhysicalDeviceFeatures2::builder()
+                .push_next(&mut vulkan_memory_model_feature)
                 .push_next(&mut dynamic_rendering_feature)
                 .push_next(&mut buffer_device_address_feature),
             queues: [

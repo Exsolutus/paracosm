@@ -1,7 +1,6 @@
-
 use crate::render_resource::shader::*;
-use crate::{RenderStage, RenderApp};
 
+use bevy_utils::{HashMap};
 use paracosm_gpu::{
     device::Device,
     resource::pipeline::*,
@@ -9,49 +8,66 @@ use paracosm_gpu::{
 
 use ash::vk;
 use bevy_app::{App, Plugin};
-use bevy_asset::{Assets, AssetEvent};
-use bevy_ecs::{prelude::*, schedule::ShouldRun};
+use bevy_asset::{AddAsset, AssetEvent, AssetLoader, Assets, AssetServer, Handle, LoadContext, LoadedAsset};
+use bevy_ecs::{prelude::*};
 use bevy_log::prelude::*;
+use bevy_reflect::{TypeUuid};
 use std::{
     borrow::Cow
 };
 
 use rust_shaders_shared::Vertex;
 
+#[derive(Clone, TypeUuid)]
+#[uuid = "22957743-5bc2-47f8-a6ff-a357c1e6dbe4"]
+pub enum Pipeline {
+    Graphics(GraphicsPipeline),
+    Compute(ComputePipeline)
+}
+
+#[derive(Clone, Debug, Resource)]
+pub struct PipelineManager {
+    pub pipelines: HashMap<String, Handle<Pipeline>>
+}
+
+
 pub struct PipelineManagerPlugin;
 
 impl Plugin for PipelineManagerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system_set(
-                SystemSet::new()
-                    .with_run_criteria(run_if_pending_shaders)
-                    .with_system(generate_pipelines)
-            );
+        app.add_asset::<Pipeline>()
+            .add_debug_asset::<Pipeline>();
+
+        app.add_system(
+            generate_pipelines
+                .at_end()
+                .after(process_shader_events)
+                .with_run_criteria(run_if_shader_events)
+        );
+
+        app.world.insert_resource(PipelineManager {
+            pipelines: HashMap::new()
+        })
     }
 }
 
-fn run_if_pending_shaders(
-    ev_asset: EventReader<AssetEvent<Shader>>
-) -> ShouldRun {
-    match ev_asset.is_empty() {
-        true => ShouldRun::No,
-        false => ShouldRun::Yes
-    }
-}
 
 fn generate_pipelines(
     mut ev_asset: EventReader<AssetEvent<Shader>>,
-    assets: Res<Assets<Shader>>,
+    shader_assets: Res<Assets<Shader>>,
+    mut pipeline_assets: ResMut<Assets<Pipeline>>,
     device: Res<Device>,
-    mut commands: Commands,
+    mut pipeline_manager: ResMut<PipelineManager>
 ) {
+    // TODO: load pipeline definitions from files
     debug!("Checking for pipelines to create!");
     for ev in ev_asset.iter() {
         match ev {
             AssetEvent::Created { handle } => {
-                let shader = assets.get(handle).unwrap();
+                let shader = shader_assets.get(handle).unwrap();
                 let pipeline = create_graphics_pipeline(device.clone(), shader);
-                commands.insert_resource(pipeline);
+                let handle = pipeline_assets.add(Pipeline::Graphics(pipeline));
+                pipeline_manager.pipelines.insert(shader.name.to_string(), handle);
             },
             _ => ()
         }
@@ -59,9 +75,9 @@ fn generate_pipelines(
 }
 
 fn create_graphics_pipeline(device: Device, shader: &Shader) -> GraphicsPipeline {
-    let module = match device.create_shader_module(&shader.path) {
-        Ok(result) => result,
-        Err(error) => panic!("Failed to create shader module: {}", error.to_string())
+    let module = match shader.module {
+        Some(value) => value,
+        None => panic!("Shader module not found.")
     };
 
     let binding_description = Vertex::binding_description();
@@ -121,10 +137,6 @@ fn create_graphics_pipeline(device: Device, shader: &Shader) -> GraphicsPipeline
         Ok(result) => result,
         Err(error) => panic!("Pipeline creation failed: {}", error.to_string())
     };
-
-    unsafe {
-        device.destroy_shader_module(module, None);
-    }
 
     return mesh_pipeline
 }
