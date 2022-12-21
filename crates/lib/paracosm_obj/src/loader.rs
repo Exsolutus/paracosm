@@ -39,7 +39,8 @@ async fn load_obj<'a, 'b>(
     load_context: &'a mut LoadContext<'b>,
 ) -> Result<(), ObjError> {
     let mesh = load_obj_from_bytes(bytes)?;
-    //load_context.set_default_asset(LoadedAsset::new(mesh));
+    load_context.set_default_asset(LoadedAsset::new(mesh));
+    
     Ok(())
 }
 
@@ -89,9 +90,10 @@ pub fn load_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, ObjError> {
 
     let mut indices = MeshIndices::new(vertcount);
 
-    let mut vertex_position = Vec::with_capacity(vertcount);
-    let mut vertex_normal = Vec::with_capacity(vertcount);
-    let mut vertex_texture = Vec::with_capacity(vertcount);
+    // let mut vertex_position = Vec::with_capacity(vertcount);
+    // let mut vertex_normal = Vec::with_capacity(vertcount);
+    // let mut vertex_texture = Vec::with_capacity(vertcount);
+    let mut vertices = Vec::with_capacity(vertcount);
 
     for polygon in &raw.polygons {
         match polygon {
@@ -100,8 +102,9 @@ pub fn load_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, ObjError> {
 
                 for ipos in poly {
                     indices.insert((*ipos, 0, 0), || {
-                        vertex_position.push(convert_position(&raw, *ipos));
-                        vertex_normal.push(normal);
+                        // vertex_position.push(convert_position(&raw, *ipos));
+                        // vertex_normal.push(normal);
+                        vertices.push(Vertex::new(convert_position(&raw, *ipos), normal, [1.0, 0.0, 0.0]));
                     });
                 }
             }
@@ -111,26 +114,29 @@ pub fn load_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, ObjError> {
 
                 for (ipos, itex) in poly {
                     indices.insert((*ipos, 0, *itex), || {
-                        vertex_position.push(convert_position(&raw, *ipos));
-                        vertex_normal.push(normal);
-                        vertex_texture.push(convert_texture(&raw, *itex));
+                        // vertex_position.push(convert_position(&raw, *ipos));
+                        // vertex_normal.push(normal);
+                        // vertex_texture.push(convert_texture(&raw, *itex));
+                        vertices.push(Vertex::new(convert_position(&raw, *ipos), normal, [1.0, 0.0, 0.0]));
                     });
                 }
             }
             Polygon::PN(poly) if poly.len() == 3 => {
                 for (ipos, inorm) in poly {
                     indices.insert((*ipos, *inorm, 0), || {
-                        vertex_position.push(convert_position(&raw, *ipos));
-                        vertex_normal.push(convert_normal(&raw, *inorm));
+                        // vertex_position.push(convert_position(&raw, *ipos));
+                        // vertex_normal.push(convert_normal(&raw, *inorm));
+                        vertices.push(Vertex::new(convert_position(&raw, *ipos), convert_normal(&raw, *inorm), [1.0, 0.0, 0.0]));
                     });
                 }
             }
             Polygon::PTN(poly) if poly.len() == 3 => {
                 for (ipos, itex, inorm) in poly {
                     indices.insert((*ipos, *inorm, *itex), || {
-                        vertex_position.push(convert_position(&raw, *ipos));
-                        vertex_normal.push(convert_normal(&raw, *inorm));
-                        vertex_texture.push(convert_texture(&raw, *itex));
+                        // vertex_position.push(convert_position(&raw, *ipos));
+                        // vertex_normal.push(convert_normal(&raw, *inorm));
+                        // vertex_texture.push(convert_texture(&raw, *itex));
+                        vertices.push(Vertex::new(convert_position(&raw, *ipos), convert_normal(&raw, *inorm), [1.0, 0.0, 0.0]));
                     });
                 }
             }
@@ -138,7 +144,7 @@ pub fn load_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, ObjError> {
         }
     }
 
-    let mut mesh = Mesh::new();
+    let mut mesh = Mesh::with_geometry(vertices, indices);
 
     // let vertex = Vertex::new(
 

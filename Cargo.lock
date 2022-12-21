@@ -1831,6 +1831,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "obj-rs"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c90a2f645433dba5c609451d3fa847282b0f23ee8d8fa75491a946af53cb1db4"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "objc"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1903,6 +1912,21 @@ dependencies = [
  "gpu-allocator",
  "nalgebra-glm",
  "raw-window-handle 0.3.4",
+]
+
+[[package]]
+name = "paracosm_obj"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bevy_app",
+ "bevy_asset",
+ "bevy_math",
+ "bevy_render",
+ "bevy_utils",
+ "obj-rs",
+ "paracosm_render",
+ "thiserror",
 ]
 
 [[package]]

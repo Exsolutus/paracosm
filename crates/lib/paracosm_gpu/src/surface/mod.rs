@@ -44,11 +44,7 @@ impl Surface {
         raw_handle: &RawHandleWrapper
     ) -> Self {
         let instance = &device.instance;
-
-        // Select presentation queue for device
-        // TODO: evaluate all queues and select best
-        let present_queue_index = device.queues.graphics_family;
-
+        
         // Select presentation queue for device
         // TODO: evaluate all queues and select best
         let present_queue_index = device.queues.graphics_family;

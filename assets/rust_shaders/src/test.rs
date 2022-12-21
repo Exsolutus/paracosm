@@ -4,7 +4,10 @@
 use glam::{Vec4};
 use spirv_std::{glam, spirv};
 
-use rust_shaders_shared::{ShaderConstants, Vertex};
+use rust_shaders_shared::{
+    ShaderConstants, 
+    // Vertex
+};
 
 #[spirv(vertex)]
 pub fn main_vs(

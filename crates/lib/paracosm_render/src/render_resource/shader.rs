@@ -29,13 +29,13 @@ pub struct Shader {
 
 #[derive(Clone, Debug, Resource)]
 pub struct ShaderManager {
-    shaders: HashSet<Handle<Shader>>
+    pub shaders: HashSet<Handle<Shader>>
 }
 
 
-pub struct ShaderManagerPlugin;
+pub struct ShaderPlugin;
 
-impl Plugin for ShaderManagerPlugin {
+impl Plugin for ShaderPlugin {
     fn build(&self, app: &mut App) {
         app.add_asset::<Shader>()
             .add_debug_asset::<Shader>()

@@ -8,7 +8,7 @@ use paracosm_gpu::{
 
 use ash::vk;
 use bevy_app::{App, Plugin};
-use bevy_asset::{AddAsset, AssetEvent, AssetLoader, Assets, AssetServer, Handle, LoadContext, LoadedAsset};
+use bevy_asset::{AddAsset, AssetEvent, Assets, Handle};
 use bevy_ecs::{prelude::*};
 use bevy_log::prelude::*;
 use bevy_reflect::{TypeUuid};
@@ -64,6 +64,7 @@ fn generate_pipelines(
     for ev in ev_asset.iter() {
         match ev {
             AssetEvent::Created { handle } => {
+                debug!("Creating a pipeline!");
                 let shader = shader_assets.get(handle).unwrap();
                 let pipeline = create_graphics_pipeline(device.clone(), shader);
                 let handle = pipeline_assets.add(Pipeline::Graphics(pipeline));

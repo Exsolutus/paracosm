@@ -6,6 +6,7 @@ members = [
     "crates/bin/test_example",
 
     "crates/lib/paracosm_gpu",
+    "crates/lib/paracosm_obj",
     "crates/lib/paracosm_render",
 ]
 

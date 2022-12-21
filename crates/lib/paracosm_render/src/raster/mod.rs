@@ -1,15 +1,16 @@
 use crate::window::{ExtractedWindows, WindowSurfaces};
-use crate::mesh::*;
+use crate::{mesh::*, Pipeline, PipelineManager};
 
 use ash::vk;
 
+use bevy_asset::prelude::*;
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use bevy_time::prelude::*;
 use bevy_window::Window;
 
-use paracosm_gpu::{instance::Instance, device::{Device, Queue}, surface::Surface, resource::pipeline::GraphicsPipeline};
+use paracosm_gpu::{instance::Instance, device::{Device, Queue}, surface::Surface};
 use paracosm_gpu::glm;
 
 use std::slice;
@@ -48,7 +49,8 @@ pub fn render_system(
     queue: Res<RenderQueue>,
     windows: Res<ExtractedWindows>,
     mut window_surfaces: NonSendMut<WindowSurfaces>,
-    pipeline: Option<Res<GraphicsPipeline>>,
+    pipeline_handles: Res<PipelineManager>,
+    pipeline_assets: Res<Assets<Pipeline>>,
     mesh: Res<Mesh>,
     time: NonSend<Time>
 ) {
@@ -91,6 +93,7 @@ pub fn render_system(
             _ => ()
         };
 
+        
         if let Some(image_index) = window.swapchain_image_index {
             // Get swapchain image for window
             let image = match surface.image(image_index) {
@@ -159,11 +162,12 @@ pub fn render_system(
             unsafe { device.cmd_begin_rendering(frame_data.command_buffer, &rendering_info) };
 
             // Rendering commands
-            if pipeline.is_some() {
-                //debug!("Pipeline exists!");
+            if let Some(Pipeline::Graphics(pipeline)) = match pipeline_handles.pipelines.get("test.rs") {
+                Some(value) => pipeline_assets.get(value),
+                None => None
+            } {
+                debug!("Pipeline exists!");
                 unsafe {
-                    let pipeline = pipeline.as_ref().unwrap();
-
                     let model = glm::rotate(
                         &glm::identity(),
                         time.elapsed_seconds() * glm::radians(&glm::vec1(90.0))[0],

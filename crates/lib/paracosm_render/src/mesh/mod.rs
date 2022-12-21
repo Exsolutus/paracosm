@@ -1,15 +1,43 @@
-use paracosm_gpu::{resource::buffer::*, device::Device};
-
 use anyhow::{Result, bail};
 use ash::vk;
-use bevy_ecs::prelude::*;
+
+// use bevy_app::{App, Plugin};
+// use bevy_asset::{AddAsset, AssetEvent, AssetLoader, Assets, AssetServer, Handle, LoadContext, LoadedAsset};
+use bevy_ecs::{system::Resource};
 use bevy_log::prelude::*;
+// use bevy_reflect::TypeUuid;
+// use bevy_utils::{HashMap};
+
+use paracosm_gpu::{resource::buffer::*, device::Device};
+pub use rust_shaders_shared::Vertex;
+
 use std::mem::size_of;
 use std::slice;
 
-use rust_shaders_shared::Vertex;
 
 
+// #[derive(Clone, Debug, Resource)]
+// pub struct MeshManager {
+//     pub meshes: HashMap<String, Handle<Mesh>>
+// }
+
+// /// Adds the [`Mesh`] as an asset.
+// pub struct MeshPlugin;
+
+// impl Plugin for MeshPlugin {
+//     fn build(&self, app: &mut App) {
+//         app.add_asset::<Mesh>();
+
+//         app.insert_resource(MeshManager {
+//             meshes: HashMap::new()
+//         });
+//     }
+// }
+
+
+
+// #[derive(TypeUuid)]
+// #[uuid = "c6b21835-2c1b-431e-bf23-806a01591a7c"]
 #[derive(Resource)]
 pub struct Mesh {
     vertices: Vec<Vertex>,

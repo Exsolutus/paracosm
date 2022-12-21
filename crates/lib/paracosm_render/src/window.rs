@@ -1,5 +1,3 @@
-use crate::{Extract, RenderApp, RenderStage};
-
 use ash::vk;
 use ash::vk::Extent2D;
 
@@ -17,23 +15,16 @@ use std::ops::{Deref, DerefMut};
 #[derive(Default, Resource)]
 pub struct NonSendMarker;
 
-#[derive(SystemLabel, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum WindowSystem {
-    Prepare,
-}
 
 pub struct WindowRenderPlugin;
 
 impl Plugin for WindowRenderPlugin {
     fn build(&self, app: &mut App) {
-        if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
-            render_app
-                .init_resource::<ExtractedWindows>()
-                .init_non_send_resource::<WindowSurfaces>()
-                .init_resource::<NonSendMarker>()
-                .add_system_to_stage(RenderStage::Extract, extract_windows)
-                .add_system_to_stage(RenderStage::Prepare, prepare_windows.label(WindowSystem::Prepare));
-        }
+        app.init_resource::<ExtractedWindows>()
+            .init_non_send_resource::<WindowSurfaces>()
+            .init_resource::<NonSendMarker>()
+            .add_system(extract_windows.at_start())
+            .add_system(prepare_windows.at_start().after(extract_windows));
     }
 }
 
@@ -77,8 +68,8 @@ pub struct WindowSurfaces {
 
 pub fn extract_windows(
     mut extracted_windows: ResMut<ExtractedWindows>,
-    mut closed: Extract<EventReader<WindowClosed>>,
-    windows: Extract<Res<Windows>>
+    mut closed: EventReader<WindowClosed>,
+    windows: Res<Windows>
 ) {
     windows.iter().for_each(|window| {
         let extent = Extent2D {
