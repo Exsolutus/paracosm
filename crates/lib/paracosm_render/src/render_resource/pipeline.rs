@@ -75,6 +75,7 @@ fn generate_pipelines(
     }
 }
 
+// TODO: load pipeline definitions from files
 fn create_graphics_pipeline(device: Device, shader: &Shader) -> GraphicsPipeline {
     let module = match shader.module {
         Some(value) => value,
@@ -131,7 +132,20 @@ fn create_graphics_pipeline(device: Device, shader: &Shader) -> GraphicsPipeline
         multisample_state: vk::PipelineMultisampleStateCreateInfo::builder()
             .rasterization_samples(vk::SampleCountFlags::TYPE_1)
             .build(),
-        descriptor_sets: vec![]
+        descriptor_bindings: vec![
+            vk::DescriptorSetLayoutBinding::builder()  // Vertex Input Attributes
+                .binding(0)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::VERTEX)
+                .build(),
+            vk::DescriptorSetLayoutBinding::builder()   // Combined Image Sampler
+                .binding(1)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+                .build()
+        ]
     };
     
     let mesh_pipeline = match device.create_graphics_pipeline(pipeline_info) {

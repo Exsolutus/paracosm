@@ -8,7 +8,7 @@ use bevy_ecs::system::Resource;
 use bevy_log::prelude::*;
 use bevy_window::RawHandleWrapper;
 use gpu_allocator::{vulkan::*, AllocatorDebugSettings};
-use std::{ops::Deref, os::raw::c_char, sync::{Arc, Mutex}};
+use std::{ops::Deref, os::raw::c_char, slice, sync::{Arc, Mutex}, any::Any};
 
 pub use ash::vk::Queue;
 
@@ -19,6 +19,7 @@ pub enum QueueFamily {
     TRANSFER,
 }
 
+#[derive(Debug)]
 pub struct DeviceQueues {
     pub graphics_family: u32,
     pub compute_family: u32,
@@ -278,18 +279,42 @@ impl Device {
             .dynamic_rendering(true);
         let mut buffer_device_address_feature = vk::PhysicalDeviceBufferDeviceAddressFeatures::builder()
             .buffer_device_address(true);
-
+        let mut descriptor_indexing_feature = vk::PhysicalDeviceDescriptorIndexingFeatures::builder()
+            .descriptor_binding_partially_bound(true)
+            .descriptor_binding_sampled_image_update_after_bind(true)
+            .descriptor_binding_storage_buffer_update_after_bind(true)
+            .descriptor_binding_storage_image_update_after_bind(true)
+            .descriptor_binding_storage_texel_buffer_update_after_bind(true)
+            .descriptor_binding_uniform_buffer_update_after_bind(true)
+            .descriptor_binding_uniform_texel_buffer_update_after_bind(true)
+            .descriptor_binding_update_unused_while_pending(true)
+            .descriptor_binding_variable_descriptor_count(true)
+            .runtime_descriptor_array(true)
+            .shader_input_attachment_array_dynamic_indexing(true)
+            .shader_input_attachment_array_non_uniform_indexing(true)
+            .shader_sampled_image_array_non_uniform_indexing(true)
+            .shader_storage_buffer_array_non_uniform_indexing(true)
+            .shader_storage_image_array_non_uniform_indexing(true)
+            .shader_storage_texel_buffer_array_dynamic_indexing(true)
+            .shader_storage_texel_buffer_array_non_uniform_indexing(true)
+            .shader_uniform_buffer_array_non_uniform_indexing(true)
+            .shader_uniform_texel_buffer_array_dynamic_indexing(true)
+            .shader_uniform_texel_buffer_array_non_uniform_indexing(true);
 
         let options = DeviceOptions {
             raw_handle,
             extensions: &[
-                // Enable swapchain extension
                 ash::extensions::khr::Swapchain::name().as_ptr(), //ash::extensions::khr::AccelerationStructure::name().as_ptr()
             ],
             features: &mut vk::PhysicalDeviceFeatures2::builder()
+                .features(vk::PhysicalDeviceFeatures::builder()
+                    .sampler_anisotropy(true)
+                    .build()
+                )
                 .push_next(&mut vulkan_memory_model_feature)
                 .push_next(&mut dynamic_rendering_feature)
-                .push_next(&mut buffer_device_address_feature),
+                .push_next(&mut buffer_device_address_feature)
+                .push_next(&mut descriptor_indexing_feature),
             queues: [
                 (QueueFamily::GRAPHICS, &[1.0]),
                 (QueueFamily::COMPUTE, &[1.0]),
@@ -336,6 +361,38 @@ impl Device {
         .context(format!("Queue index out of range; index {}, queue count {}", queue_index, self.queues.transfer_count))?;
 
         Ok(queue)
+    }
+
+    pub fn begin_transfer_commands(&self) -> Result<vk::CommandBuffer> {
+        // Create temporary transfer command buffer
+        let alloc_info = vk::CommandBufferAllocateInfo::builder()
+            .command_pool(self.transfer_pool)
+            .command_buffer_count(1)
+            .level(vk::CommandBufferLevel::PRIMARY);
+        let command_buffer = unsafe { self.allocate_command_buffers(&alloc_info)?[0] };
+        unsafe {
+            let begin_info = vk::CommandBufferBeginInfo::builder()
+                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+            self.begin_command_buffer(command_buffer, &begin_info)?;
+        }
+
+        Ok(command_buffer)
+    }
+
+    pub fn end_transfer_commands(&self, command_buffer: vk::CommandBuffer) -> Result<()> {
+        // Execute transfer command buffer
+        unsafe {
+            self.end_command_buffer(command_buffer)?;
+            let submit_info = vk::SubmitInfo::builder()
+                .command_buffers(slice::from_ref(&command_buffer))
+                .build();
+            self.queue_submit(self.transfer_queue, slice::from_ref(&submit_info), vk::Fence::null())?;
+            self.queue_wait_idle(self.transfer_queue)?;
+
+            self.free_command_buffers(self.transfer_pool, &[command_buffer]);
+        }
+        
+        Ok(())
     }
 
     #[inline]

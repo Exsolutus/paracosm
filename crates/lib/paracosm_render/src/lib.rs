@@ -1,8 +1,10 @@
+pub mod image;
 pub mod mesh;
 mod raster;
 mod render_resource;
 mod window;
 
+use crate::image::*;
 use mesh::*;
 use raster::*;
 pub use render_resource::{
@@ -13,12 +15,12 @@ use window::WindowRenderPlugin;
 use render_resource::pipeline::PipelineManagerPlugin;
 
 use paracosm_gpu::{instance::Instance};
-use rust_shaders_shared::{Vertex, Vec4};
 
 use bevy_app::{App, Plugin};
+use bevy_asset::{Assets, AddAsset, AssetServer, Handle};
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
-
+use bevy_math::prelude::*;
 
 
 #[derive(Default)]
@@ -51,29 +53,47 @@ impl Plugin for RenderPlugin {
 
         // Add render resource plugins
         app.add_plugin(ShaderPlugin)
-            .add_plugin(PipelineManagerPlugin);
+            .add_plugin(PipelineManagerPlugin)
+            .add_plugin(MeshPlugin)
+            .add_plugin(ImagePlugin);
 
 
-        // TODO: add proper asset management
-        // Create triangle mesh
+
+        // TODO: properly move into Bevy scene
+        // Load/create assets
         let vertices = vec![
-            Vertex::new(Vec4::new(-0.5, -0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(1.0, 0.0, 0.0, 0.0)),
-            Vertex::new(Vec4::new(0.5, -0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(0.0, 1.0, 0.0, 0.0)),
-            Vertex::new(Vec4::new(0.5, 0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(0.0, 0.0, 1.0, 0.0)),
-            Vertex::new(Vec4::new(-0.5, 0.5, 0.0, 0.0), Vec4::new(0.0, 0.0, 0.0, 0.0), Vec4::new(1.0, 1.0, 1.0, 0.0)),
+            Vertex::new(Vec3::new(-0.5, -0.5, 0.0), Vec3::new(0.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)),
+            Vertex::new(Vec3::new(0.5, -0.5, 0.0), Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0)),
+            Vertex::new(Vec3::new(0.5, 0.5, 0.0), Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 1.0)),
+            Vertex::new(Vec3::new(-0.5, 0.5, 0.0), Vec3::new(0.0, 0.0, 0.0), Vec3::new(1.0, 1.0, 1.0)),
         ];
         let indices = vec![0, 1, 2, 2, 3, 0];
         let mut mesh = Mesh::with_geometry(vertices, indices);
-        mesh.upload(device.clone()).unwrap();
+        mesh.upload(&device).unwrap();
 
+        let mut mesh_assets = app.world.get_resource_mut::<Assets<Mesh>>().unwrap();
+        let square_handle = mesh_assets.add(mesh);
+
+        let asset_server = app.world.get_resource::<AssetServer>().unwrap();
+        let monkey_handle: Handle<Mesh> = asset_server.load("models/monkey_flat.obj");
+        let image_handle: Handle<Image> = asset_server.load("textures/texture.png");
+
+        // Cache asset handles
+        let mut mesh_manager = app.world.get_resource_mut::<MeshManager>().unwrap();
+        mesh_manager.meshes.insert("square".to_string(), square_handle);
+        mesh_manager.meshes.insert("monkey".to_string(), monkey_handle);
+
+        let mut image_manager = app.world.get_resource_mut::<ImageManager>().unwrap();
+        image_manager.images.insert("test".to_string(), image_handle);
         
+
+
         app.insert_resource(device.clone());
 
         app.add_system(render_system.at_end())
             .insert_resource(instance)
             .insert_resource(device)
-            .insert_resource(queue)
-            .insert_resource(mesh);
+            .insert_resource(queue);
 
         // Add supporting plugins
         app.add_plugin(WindowRenderPlugin);

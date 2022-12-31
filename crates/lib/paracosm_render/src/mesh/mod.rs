@@ -1,12 +1,12 @@
 use anyhow::{Result, bail};
 use ash::vk;
 
-// use bevy_app::{App, Plugin};
-// use bevy_asset::{AddAsset, AssetEvent, AssetLoader, Assets, AssetServer, Handle, LoadContext, LoadedAsset};
+use bevy_app::{App, Plugin};
+use bevy_asset::{AddAsset, AssetEvent, AssetLoader, Assets, AssetServer, Handle, LoadContext, LoadedAsset};
 use bevy_ecs::{system::Resource};
 use bevy_log::prelude::*;
-// use bevy_reflect::TypeUuid;
-// use bevy_utils::{HashMap};
+use bevy_reflect::TypeUuid;
+use bevy_utils::{HashMap};
 
 use paracosm_gpu::{resource::buffer::*, device::Device};
 pub use rust_shaders_shared::Vertex;
@@ -16,32 +16,32 @@ use std::slice;
 
 
 
-// #[derive(Clone, Debug, Resource)]
-// pub struct MeshManager {
-//     pub meshes: HashMap<String, Handle<Mesh>>
-// }
+#[derive(Clone, Debug, Resource)]
+pub struct MeshManager {
+    pub meshes: HashMap<String, Handle<Mesh>>
+}
 
-// /// Adds the [`Mesh`] as an asset.
-// pub struct MeshPlugin;
+/// Adds the [`Mesh`] as an asset.
+pub struct MeshPlugin;
 
-// impl Plugin for MeshPlugin {
-//     fn build(&self, app: &mut App) {
-//         app.add_asset::<Mesh>();
+impl Plugin for MeshPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_asset::<Mesh>();
 
-//         app.insert_resource(MeshManager {
-//             meshes: HashMap::new()
-//         });
-//     }
-// }
+        app.insert_resource(MeshManager {
+            meshes: HashMap::new()
+        });
+    }
+}
 
 
 
-// #[derive(TypeUuid)]
-// #[uuid = "c6b21835-2c1b-431e-bf23-806a01591a7c"]
-#[derive(Resource)]
+#[derive(TypeUuid)]
+#[uuid = "c6b21835-2c1b-431e-bf23-806a01591a7c"]
+// #[derive(Resource)]
 pub struct Mesh {
     vertices: Vec<Vertex>,
-    indices: Vec<u16>,
+    indices: Vec<u32>,
     vertex_buffer: Option<Buffer>,
     index_buffer: Option<Buffer>
 }
@@ -58,7 +58,7 @@ impl Mesh {
 
     pub fn with_geometry(
         vertices: Vec<Vertex>,
-        indices: Vec<u16>
+        indices: Vec<u32>
     ) -> Self {
         Self {
             vertices,
@@ -72,13 +72,17 @@ impl Mesh {
         self.vertices.push(vertex);
     }
 
-    pub fn set_indices(&mut self, indices: Vec<u16>) {
+    pub fn set_indices(&mut self, indices: Vec<u32>) {
         self.indices = indices;
     }
 
-    pub fn upload(&mut self, device: Device) -> Result<()> {
+    pub fn upload(&mut self, device: &Device) -> Result<()> {
+        if self.vertex_buffer.is_some() {
+            return Ok(())
+        }
+
         let vertices_size = size_of::<Vertex>() * self.vertices.len();
-        let indices_size = size_of::<u16>() * self.indices.len();
+        let indices_size = size_of::<u32>() * self.indices.len();
 
         // Create staging buffers
         let info = BufferInfo::new(vertices_size, BufferUsageFlags::TRANSFER_SRC, MemoryLocation::CpuToGpu);
@@ -118,7 +122,7 @@ impl Mesh {
             let index_buffer = self.index_buffer.as_ref().unwrap().buffer;
             
             device.cmd_bind_vertex_buffers(command_buffer, 0, slice::from_ref(&vertex_buffer), &[0]);
-            device.cmd_bind_index_buffer(command_buffer, index_buffer, 0, vk::IndexType::UINT16);
+            device.cmd_bind_index_buffer(command_buffer, index_buffer, 0, vk::IndexType::UINT32);
         }
 
         Ok(())

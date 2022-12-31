@@ -132,39 +132,15 @@ impl Device {
         destination: &Buffer,
         size: usize
     ) -> Result<()> {
-        // Create temporary transfer command buffer
-        let alloc_info = vk::CommandBufferAllocateInfo::builder()
-            .command_pool(self.transfer_pool)
-            .command_buffer_count(1)
-            .level(vk::CommandBufferLevel::PRIMARY);
-        let command_buffer = unsafe { self.allocate_command_buffers(&alloc_info)?[0] };
+        let command_buffer = self.begin_transfer_commands()?;
 
         // Record commands for data transfer
         unsafe {
-            let begin_info = vk::CommandBufferBeginInfo::builder()
-                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-            self.begin_command_buffer(command_buffer, &begin_info)?;
-
             let regions = vk::BufferCopy::builder().size(size as u64);
             self.cmd_copy_buffer(command_buffer, source.buffer, destination.buffer, slice::from_ref(&regions));
-
-            self.end_command_buffer(command_buffer)?;
         }
 
-        // Execute transfer command buffer
-        let submit_info = vk::SubmitInfo::builder()
-            .command_buffers(slice::from_ref(&command_buffer))
-            .build();
-        unsafe { 
-            self.queue_submit(self.transfer_queue, slice::from_ref(&submit_info), vk::Fence::null())?;
-            self.queue_wait_idle(self.transfer_queue)?;
-        }
-
-        // Cleanup
-        unsafe {
-            self.free_command_buffers(self.transfer_pool, &[command_buffer]);
-        }
-        
+        self.end_transfer_commands(command_buffer)?;
 
         Ok(())
     }

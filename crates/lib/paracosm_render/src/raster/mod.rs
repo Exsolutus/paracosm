@@ -1,16 +1,17 @@
-use crate::window::{ExtractedWindows, WindowSurfaces};
-use crate::{mesh::*, Pipeline, PipelineManager};
+use crate::window::{WindowSurfaces};
+use crate::{mesh::*, image::*, Pipeline, PipelineManager};
 
 use ash::vk;
+use anyhow::{Result, bail};
 
 use bevy_asset::prelude::*;
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use bevy_time::prelude::*;
-use bevy_window::Window;
+use bevy_window::{Window, Windows};
 
-use paracosm_gpu::{instance::Instance, device::{Device, Queue}, surface::Surface};
+use paracosm_gpu::{instance::Instance, device::{Device, Queue}, resource::image as gpu_image, surface::Surface};
 use paracosm_gpu::glm;
 
 use std::slice;
@@ -25,18 +26,18 @@ type RendererData = (Device, RenderQueue);
 pub fn initialize_renderer(
     window: &Window,
     instance: Instance
-) -> Result<RendererData, String> {
+) -> Result<RendererData> {
     // Create Device
     let window_handle = window.raw_handle();
     let device = match Device::primary(instance.clone(), window_handle) {
         Ok(result) => result,
-        Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string())),
+        Err(error) => bail!("Renderer::render_system: {}", error.to_string()),
     };
 
     // Get first Graphics queue
     let graphics_queue = match device.graphics_queue(0) {
         Ok(result) => result,
-        Err(error) => return Err(format!("Renderer::render_system: {}", error.to_string()))
+        Err(error) => bail!("Renderer::render_system: {}", error.to_string())
     };
 
     Ok((device, RenderQueue(graphics_queue)))
@@ -47,11 +48,14 @@ pub fn initialize_renderer(
 pub fn render_system(
     device: Res<Device>,
     queue: Res<RenderQueue>,
-    windows: Res<ExtractedWindows>,
+    windows: Res<Windows>,
     mut window_surfaces: NonSendMut<WindowSurfaces>,
     pipeline_handles: Res<PipelineManager>,
     pipeline_assets: Res<Assets<Pipeline>>,
-    mesh: Res<Mesh>,
+    mesh_handles: Res<MeshManager>,
+    mut mesh_assets: ResMut<Assets<Mesh>>,
+    image_handles: Res<ImageManager>,
+    mut image_assets: ResMut<Assets<Image>>,
     time: NonSend<Time>
 ) {
     //let _span = info_span!("present_frames").entered();
@@ -66,199 +70,121 @@ pub fn render_system(
     //     world.entity_mut(view_entity).remove::<ViewTarget>();
     // }
 
-    // TODO: convert window iteration to view rendering and simultaneous presentation
+    // TODO: convert window iteration to Views and simultaneous presentation
     // Render for each active window surface
-    for (_id, window) in windows.iter() {
+    for window in windows.iter() {
         // Check window is configured
-        if !window.configured {
+        if !window_surfaces.configured_windows.contains(&window.id()) {
             continue;
         }
 
         // Get surface for window
-        let surface: &mut Surface = match window_surfaces.surfaces.get_mut(&window.id) {
-            Some(result) => result,
-            None => continue
+        let Some(surface) = window_surfaces.surfaces.get_mut(&window.id()) else {
+            continue;
+        };
+        let Ok(extent) = surface.extent() else {
+            continue;
         };
 
-        // Get frame data for surface
-        let frame_data = surface.frame_data();
-
-        // Wait for current frame-in-flight
-        match unsafe { device.wait_for_fences(slice::from_ref(&frame_data.in_flight_fence), true, 1000000000) } {
-            Err(error) => return error!("Renderer::render_system: {}", error),
-            _ => ()
-        };
-        match unsafe { device.reset_fences(&[frame_data.in_flight_fence]) } {
-            Err(error) => return error!("Renderer::render_system: {}", error),
-            _ => ()
+        // Begin rendering
+        let command_buffer = match surface.begin_rendering() {
+            Ok(result) => result,
+            Err(error) => {
+                error!("Renderer::render_system: {}", error);
+                continue;
+            }
         };
 
-        
-        if let Some(image_index) = window.swapchain_image_index {
-            // Get swapchain image for window
-            let image = match surface.image(image_index) {
-                Ok(result) => result,
-                Err(error) => return error!("Renderer::render_system: {}", error)
-            };
-            let extent = match surface.extent() {
-                Ok(result) => result,
-                Err(error) => return error!("Renderer::render_system: {}", error)
-            };
-
-            // Reset command buffer
-            match unsafe { device.reset_command_buffer(frame_data.command_buffer, vk::CommandBufferResetFlags::empty()) } {
-                Err(error) => return error!("Renderer::render_system: {}", error),
-                _ => ()
-            };
-
-            // Record commands
-            let begin_info = vk::CommandBufferBeginInfo::builder()
-                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-            match unsafe { device.begin_command_buffer(frame_data.command_buffer, &begin_info) } {
-                Err(error) => return error!("Renderer::render_system: {}", error),
-                _ => ()
-            };
-
-            // Image Layout to Color Attachment Optimal
-            let image_memory_barrier = vk::ImageMemoryBarrier::builder()
-                .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
-                .old_layout(vk::ImageLayout::UNDEFINED)
-                .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .image(image)
-                .subresource_range(
-                    vk::ImageSubresourceRange::builder()
-                        .aspect_mask(vk::ImageAspectFlags::COLOR)
-                        .base_mip_level(0)
-                        .level_count(1)
-                        .base_array_layer(0)
-                        .layer_count(1)
-                        .build()
+        // Do rendering tasks
+        if let Some(Pipeline::Graphics(pipeline)) = match pipeline_handles.pipelines.get("test.rs") {
+            Some(value) => pipeline_assets.get(value),
+            None => None
+        } {
+            unsafe {
+                let model = glm::rotate(
+                    &glm::identity(),
+                    time.elapsed_seconds() * 0.5 * glm::radians(&glm::vec1(90.0))[0],
+                    &glm::vec3(0.0, 0.0, 1.0)
                 );
-            unsafe { device.cmd_pipeline_barrier(
-                frame_data.command_buffer, 
-                vk::PipelineStageFlags::TOP_OF_PIPE, 
-                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, 
-                vk::DependencyFlags::empty(), &[], &[], 
-                slice::from_ref(&image_memory_barrier)
-            ) };
+                let view = glm::look_at(
+                    &glm::vec3(2.0, 2.0, 2.0),
+                    &glm::vec3(0.0, 0.0, 0.0),
+                    &glm::vec3(0.0, 0.0, 1.0),
+                );
+                let mut proj = glm::perspective(
+                    extent.width as f32 / extent.height as f32,
+                    glm::radians(&glm::vec1(45.0))[0],
+                    0.1,
+                    10.0
+                );
+                proj[(1, 1)] *= -1.0;
+                let render_matrix = proj * view * model;
 
-            // Begin rendering
-            let clear_value = vk::ClearValue { 
-                color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 1.0] } 
-            };
-            let attachment_info = match surface.attachment_info(image_index, clear_value) {
-                Ok(result) => result,
-                Err(error) => return error!("Renderer::render_system: {}", error)
-            };
-            let rendering_info = vk::RenderingInfo::builder()
-                .render_area(vk::Rect2D::builder()
-                    // Leave offset default
-                    .extent(extent)
-                    .build()
-                )
-                .layer_count(1)
-                .color_attachments(slice::from_ref(&attachment_info));
-
-            unsafe { device.cmd_begin_rendering(frame_data.command_buffer, &rendering_info) };
-
-            // Rendering commands
-            if let Some(Pipeline::Graphics(pipeline)) = match pipeline_handles.pipelines.get("test.rs") {
-                Some(value) => pipeline_assets.get(value),
-                None => None
-            } {
-                debug!("Pipeline exists!");
-                unsafe {
-                    let model = glm::rotate(
-                        &glm::identity(),
-                        time.elapsed_seconds() * glm::radians(&glm::vec1(90.0))[0],
-                        &glm::vec3(0.0, 0.0, 1.0)
-                    );
-                    let view = glm::look_at(
-                        &glm::vec3(2.0, 2.0, 2.0),
-                        &glm::vec3(0.0, 0.0, 0.0),
-                        &glm::vec3(0.0, 0.0, 1.0),
-                    );
-                    let mut proj = glm::perspective(
-                        extent.width as f32 / extent.height as f32,
-                        glm::radians(&glm::vec1(45.0))[0],
-                        0.1,
-                        10.0
-                    );
-                    proj[(1, 1)] *= -1.0;
-                    let render_matrix = proj * view * model;
-
-                    let (_, render_matrix_bytes, _) = render_matrix.as_slice().align_to::<u8>();
+                let (_, render_matrix_bytes, _) = render_matrix.as_slice().align_to::<u8>();
 
 
-                    let viewports = [
-                        vk::Viewport::builder()
-                            .width(extent.width as f32)
-                            .height(extent.height as f32)
-                            .build()
-                    ];
-                    let scissors = [extent.into()];
-                    device.cmd_set_viewport(frame_data.command_buffer, 0, &viewports);
-                    device.cmd_set_scissor(frame_data.command_buffer, 0, &scissors);
-                    device.cmd_bind_pipeline(frame_data.command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline);
-                    match mesh.bind(device.as_ref(), frame_data.command_buffer) {
+                let viewports = [
+                    vk::Viewport::builder()
+                        .width(extent.width as f32)
+                        .height(extent.height as f32)
+                        .build()
+                ];
+                let scissors = [extent.into()];
+                device.cmd_set_viewport(command_buffer, 0, &viewports);
+                device.cmd_set_scissor(command_buffer, 0, &scissors);
+                device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline);
+
+                let mesh_handle = mesh_handles.meshes.get("square");
+                if let Some(mesh) = match mesh_handle {
+                    Some(value) => mesh_assets.get_mut(value),
+                    None => None
+                } {
+                    mesh.upload(&device).unwrap();
+
+                    match mesh.bind(device.as_ref(), command_buffer) {
                         Ok(_) => (),
                         Err(error) => return error!("Renderer::render_system: {}", error)
                     };
-                    device.cmd_push_constants(frame_data.command_buffer, pipeline.pipeline_layout, vk::ShaderStageFlags::VERTEX, 0, render_matrix_bytes);
-                    device.cmd_draw_indexed(frame_data.command_buffer, mesh.index_count() as u32, 1, 0, 0, 0);
+
+                    device.cmd_push_constants(command_buffer, pipeline.pipeline_layout, vk::ShaderStageFlags::VERTEX, 0, render_matrix_bytes);
+                    device.cmd_draw_indexed(command_buffer, mesh.index_count() as u32, 1, 0, 0, 0);
+                }
+
+                let image_handle = image_handles.images.get("test");
+                if let Some(image) = match image_handle {
+                    Some(value) => image_assets.get_mut(value),
+                    None => None
+                } {
+                    let skipped = image.upload(&device).unwrap();
+
+                    // if !skipped {
+                    //     // Prepare image for use in shaders
+                    //     match device.transition_image_layout(
+                    //         frame_data.command_buffer,
+                    //         image.gpu_image.as_ref().unwrap(),
+                    //         gpu_image::Format::R8G8B8A8_SRGB,
+                    //         gpu_image::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    //         gpu_image::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+                    //     ) {
+                    //         Ok(_) => (),
+                    //         Err(error) => return error!("Renderer::render_system: {}", error)
+                    //     };
+                    // }
                 }
             }
-
-            // End rendering
-            unsafe { device.cmd_end_rendering(frame_data.command_buffer) };
-
-            // Image Layout to Present Optimal
-            let image_memory_barrier = vk::ImageMemoryBarrier::builder()
-                .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
-                .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-                .image(image)
-                .subresource_range(
-                    vk::ImageSubresourceRange::builder()
-                        .aspect_mask(vk::ImageAspectFlags::COLOR)
-                        .base_mip_level(0)
-                        .level_count(1)
-                        .base_array_layer(0)
-                        .layer_count(1)
-                        .build()
-                );
-            unsafe { device.cmd_pipeline_barrier(
-                frame_data.command_buffer, 
-                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, 
-                vk::PipelineStageFlags::BOTTOM_OF_PIPE, 
-                vk::DependencyFlags::empty(), &[], &[], 
-                slice::from_ref(&image_memory_barrier)
-            ) };
-
-            // End recording commands
-            match unsafe { device.end_command_buffer(frame_data.command_buffer) } {
-                Err(error) => return error!("Renderer::render_system: {}", error),
-                _ => ()
-            };
-
-            // Submit command buffer
-            let submit_info = vk::SubmitInfo::builder()
-                .wait_dst_stage_mask(slice::from_ref(&vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT))
-                .wait_semaphores(slice::from_ref(&surface.swapchain_semaphore))
-                .signal_semaphores(slice::from_ref(&frame_data.render_semaphore))
-                .command_buffers(slice::from_ref(&frame_data.command_buffer))
-                .build();
-            match unsafe { device.queue_submit(**queue, slice::from_ref(&submit_info), frame_data.in_flight_fence) } {
-                Err(error) => return error!("Renderer::render_system: {}", error),
-                _ => ()
-            };
-
-            // // Present rendered image to surface
-            match surface.queue_present(**queue, slice::from_ref(&image_index)) {
-                Err(error) => return error!("Renderer::render_system: {}", error),
-                _ => ()
-            };
         }
+
+        // End rendering
+        if let Err(error) = surface.end_rendering(queue.0) {
+            error!("Renderer::render_system: {}", error);
+            continue;
+        };
+
+        // Present rendered image to surface
+        if let Err(error) = surface.queue_present(queue.0) {
+            error!("Renderer::render_system: {}", error);
+            continue;
+        };
     }
 }
 

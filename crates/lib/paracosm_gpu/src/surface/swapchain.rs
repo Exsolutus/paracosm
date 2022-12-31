@@ -1,13 +1,14 @@
 use crate::device::Device;
+use crate::resource::image::*;
 
+use anyhow::{Result, bail};
 use ash::extensions::khr;
 use ash::vk;
 
 use bevy_log::prelude::*;
 
 use std::{
-    ops::Deref,
-    string::String
+    ops::Deref
 };
 
 
@@ -19,8 +20,10 @@ pub(super) struct Swapchain {
 
     pub image_format: vk::Format,
     pub image_extent: vk::Extent2D,
-    pub images: Vec<vk::Image>,
-    pub image_views: Vec<vk::ImageView>
+    pub images: Vec<Image>,
+    // pub images: Vec<vk::Image>,
+    // pub image_views: Vec<vk::ImageView>,
+    pub depth_images: Vec<Image>
 }
 
 impl Swapchain {
@@ -32,7 +35,7 @@ impl Swapchain {
         surface_extent: vk::Extent2D,
         surface_transform: vk::SurfaceTransformFlagsKHR,
         image_count: u32
-    ) -> Result<Self, String> {
+    ) -> Result<Self> {
         let create_info = &vk::SwapchainCreateInfoKHR::builder()
             .surface(surface_handle)
             .min_image_count(image_count)
@@ -54,31 +57,49 @@ impl Swapchain {
         };
 
         // Get images and create image views
-        let images = match unsafe { swapchain.get_swapchain_images(swapchain_handle) } {
+        let image_handles = match unsafe { swapchain.get_swapchain_images(swapchain_handle) } {
             Ok(result) => result,
             Err(error) => panic!("Surface::configure: {}", error.to_string())
         };
-        let image_views: Vec<vk::ImageView> = images.iter().map(|image| {
-            let create_info = vk::ImageViewCreateInfo::builder()
-                .image(*image)
-                .view_type(vk::ImageViewType::TYPE_2D)
-                .format(selected_format.format)
-                // default components
-                .subresource_range(
-                    vk::ImageSubresourceRange::builder()
-                        .aspect_mask(vk::ImageAspectFlags::COLOR)
-                        .base_mip_level(0)
-                        .level_count(1)
-                        .base_array_layer(0)
-                        .layer_count(1)
-                        .build()
-                );
-            unsafe {
-                device.create_image_view(&create_info, None)
-                    .expect("Surface::configure: Failed to create image view!")
+        let images: Vec<Image> = image_handles.iter().map(|&image| {
+            let image_info = ImageInfo {
+                image_type: ImageType::TYPE_2D,
+                image_format: selected_format.format,
+                image_extent: Extent3D { width: surface_extent.width, height: surface_extent.height, depth: 1 },
+                mip_levels: 1,
+                array_layers: 1,
+                samples: SampleCountFlags::TYPE_1, // unused
+                tiling: ImageTiling::OPTIMAL,  // unused
+                usage: ImageUsageFlags::COLOR_ATTACHMENT, // unused
+                aspect: ImageAspectFlags::COLOR,
+                memory_location: MemoryLocation::Unknown  // unused
+            };
+
+            match Image::from_vk(&device, image, image_info) {
+                Ok(result) => result,
+                Err(error) => panic!("swapchain::new: {}", error.to_string())
             }
         })
         .collect();
+
+        // Create depth images
+        let mut depth_images: Vec<Image> = vec![];
+        for i in 0..images.len() {
+            let create_info = ImageInfo {
+                image_type: ImageType::TYPE_2D,
+                image_format: Format::D32_SFLOAT,
+                image_extent: Extent3D { width: surface_extent.width, height: surface_extent.height, depth: 1 },
+                mip_levels: 1,
+                array_layers: 1,
+                samples: SampleCountFlags::TYPE_1,
+                tiling: ImageTiling::OPTIMAL,
+                usage: ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+                aspect: ImageAspectFlags::DEPTH,
+                memory_location: MemoryLocation::GpuOnly
+            };
+            depth_images.push(device.create_image(format!("Depth Buffer {}", i).as_str(), create_info, None)?);
+        }
+
 
         Ok(Self {
             device,
@@ -87,8 +108,13 @@ impl Swapchain {
             image_format: selected_format.format,
             image_extent: surface_extent,
             images,
-            image_views
+            // image_views,
+            depth_images
         })
+    }
+
+    pub fn image_count(&self) -> usize {
+        self.images.len()
     }
 }
 
@@ -107,9 +133,11 @@ impl Drop for Swapchain {
         unsafe {
             let _ = self.device.device_wait_idle();
 
-            self.image_views.iter().for_each(|image_view| {
-                self.device.destroy_image_view(*image_view, None)
-            });
+            
+            // self.image_views.iter().for_each(|image_view| {
+            //     self.device.destroy_image_view(*image_view, None)
+            // });
+            self.images.clear();
             self.destroy_swapchain(self.handle, None);
         }
     }

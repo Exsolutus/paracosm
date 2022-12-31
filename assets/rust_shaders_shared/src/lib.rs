@@ -2,7 +2,7 @@
 
 // Rust-SpirV shared source
 
-pub use spirv_std::glam::{Mat4, Vec4};
+pub use spirv_std::glam::{Mat4, Vec4, Vec3};
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -13,9 +13,9 @@ pub struct ShaderConstants {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Vertex {
-    pub position: Vec4,
-    pub normal: Vec4,
-    pub color: Vec4,
+    pub position: Vec3,
+    pub normal: Vec3,
+    pub color: Vec3,
 }
 
 // Rust only source
@@ -25,7 +25,7 @@ pub struct Vertex {
 
 #[cfg(not(target_arch = "spirv"))]
 impl Vertex {
-    pub fn new(position: Vec4, normal: Vec4, color: Vec4) -> Self {
+    pub fn new(position: Vec3, normal: Vec3, color: Vec3) -> Self {
         Self {
             position,
             normal,
@@ -52,13 +52,13 @@ impl Vertex {
             .binding(0)
             .location(1)
             .format(vk::Format::R32G32B32_SFLOAT)
-            .offset(size_of::<Vec4>() as u32)
+            .offset(size_of::<Vec3>() as u32)
             .build();
         let color = vk::VertexInputAttributeDescription::builder()
             .binding(0)
             .location(2)
             .format(vk::Format::R32G32B32_SFLOAT)
-            .offset(2 * size_of::<Vec4>() as u32)
+            .offset(2 * size_of::<Vec3>() as u32)
             .build();
 
         [position, normal, color]

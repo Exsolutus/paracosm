@@ -51,7 +51,7 @@ pub struct GraphicsPipelineInfo {
     pub input_assembly_state: vk::PipelineInputAssemblyStateCreateInfo,
     pub rasterization_state: vk::PipelineRasterizationStateCreateInfo,
     pub multisample_state: vk::PipelineMultisampleStateCreateInfo,
-    pub descriptor_sets: Vec<vk::DescriptorSetLayout>
+    pub descriptor_bindings: Vec<vk::DescriptorSetLayoutBinding>
 }
 
 // TODO: Refactor to hide ash::vk
@@ -97,6 +97,8 @@ impl Device {
                 .name(unsafe { CStr::from_bytes_with_nul_unchecked(info.fragment_stage_info.entry_point.as_bytes()) })
                 .build()
         ];
+
+        // Create vertex input state info
         let vertex_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
             .vertex_binding_descriptions(slice::from_ref(&info.vertex_stage_info.vertex_input_desc.binding_description))
             .vertex_attribute_descriptions(info.vertex_stage_info.vertex_input_desc.attribute_descriptions.as_slice());
@@ -114,45 +116,16 @@ impl Device {
 
         // Create fixed function infos
         let input_assembly_state_create_info = info.input_assembly_state;
-        // vk::PipelineInputAssemblyStateCreateInfo::builder()
-        //     .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-        //     .primitive_restart_enable(false);
-
         let rasterization_state_create_info = info.rasterization_state;
-        // vk::PipelineRasterizationStateCreateInfo::builder()
-        //     .depth_clamp_enable(false)
-        //     .rasterizer_discard_enable(false)
-        //     .polygon_mode(vk::PolygonMode::FILL)
-        //     .line_width(1.0)
-        //     .cull_mode(vk::CullModeFlags::NONE)
-        //     .front_face(vk::FrontFace::CLOCKWISE)
-        //     .depth_bias_enable(false)
-        //     .depth_bias_constant_factor(0.0)
-        //     .depth_bias_clamp(0.0)
-        //     .depth_bias_slope_factor(0.0);
-
         let multisample_state_create_info = info.multisample_state;
-        // vk::PipelineMultisampleStateCreateInfo::builder()
-        //     .rasterization_samples(vk::SampleCountFlags::TYPE_1);
-
         let color_blend_attachment_states = info.fragment_stage_info.color_blend_states.as_slice();
-        // [
-        //     vk::PipelineColorBlendAttachmentState::builder()
-        //         .blend_enable(false)
-        //         .src_color_blend_factor(vk::BlendFactor::SRC_COLOR)
-        //         .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_DST_COLOR)
-        //         .color_blend_op(vk::BlendOp::ADD)
-        //         .src_alpha_blend_factor(vk::BlendFactor::ZERO)
-        //         .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
-        //         .alpha_blend_op(vk::BlendOp::ADD)
-        //         .color_write_mask(vk::ColorComponentFlags::RGBA)
-        //         .build()
-        // ];
         let color_blend_state_create_info = vk::PipelineColorBlendStateCreateInfo::builder()
             .logic_op(vk::LogicOp::CLEAR)
             .attachments(color_blend_attachment_states);
+        let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::builder();
         let mut pipeline_rendering_create_info = vk::PipelineRenderingCreateInfo::builder()
-            .color_attachment_formats(info.fragment_stage_info.target_states.as_slice());
+            .color_attachment_formats(info.fragment_stage_info.target_states.as_slice())
+            .depth_attachment_format(vk::Format::D32_SFLOAT);
 
         // Create pipeline layouts
         // TODO: expose push constant configuration
@@ -161,19 +134,14 @@ impl Device {
             .size(size_of::<glm::Mat4>() as u32)
             .stage_flags(vk::ShaderStageFlags::VERTEX);
 
-        // TODO: expose vertex binding configuration
-        let vertex_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::VERTEX);
         let create_info = vk::DescriptorSetLayoutCreateInfo::builder()
-            .bindings(slice::from_ref(&vertex_binding));
+            .bindings(&info.descriptor_bindings);
         let descriptor_set_layout = unsafe { self.create_descriptor_set_layout(&create_info, None)? };
 
+        let set_layouts = &[descriptor_set_layout];
         let create_info = vk::PipelineLayoutCreateInfo::builder()
             .push_constant_ranges(slice::from_ref(&push_constant))
-            .set_layouts(slice::from_ref(&descriptor_set_layout));
+            .set_layouts(set_layouts);
         let pipeline_layout = unsafe {
             match self.create_pipeline_layout(&create_info, None) {
                 Ok(result) => result,
@@ -192,6 +160,7 @@ impl Device {
             .rasterization_state(&rasterization_state_create_info)
             .multisample_state(&multisample_state_create_info)
             .color_blend_state(&color_blend_state_create_info)
+            .depth_stencil_state(&depth_stencil_state_create_info)
             .layout(pipeline_layout);
         let pipeline = unsafe {
             match self.create_graphics_pipelines(vk::PipelineCache::null(), slice::from_ref(&create_info), None) {

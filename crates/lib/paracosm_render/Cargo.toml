@@ -10,8 +10,9 @@ repository.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["dev"]
+default = ["dev", "png"]
 dev = []
+png = ["image/png"]
 
 [dependencies]
 anyhow = "1.0.66"
@@ -25,15 +26,18 @@ bevy_core = "0.9.0"
 bevy_derive = "0.9.0"
 bevy_ecs = "0.9.0"
 bevy_log = "0.9.0"
+bevy_math = "0.9.0"
 bevy_reflect = "0.9.0"
 bevy_render_macros = "0.9.0"
 bevy_time = "0.9.0"
 bevy_utils = "0.9.0"
 bevy_window = "0.9.0"
 
+image = { version = "0.24", default-features = false }
+
 #nalgebra-glm = "0.17.0"
 paracosm_gpu = { path = "../paracosm_gpu" }
 
 rust_shaders_shared = { path = "../../../assets/rust_shaders_shared" }
 
-spirv-builder = { git = "https://github.com/EmbarkStudios/rust-gpu" }
+spirv-builder = "0.4.0"

@@ -16,7 +16,7 @@ use std::{ffi::CStr, ffi::CString};
 pub use nalgebra_glm as glm;
 
 
-/// Vulkan abstractions exposed as Bevy plugin to provide flexible GPU access
+/// Vulkan abstractions exposed through Bevy plugin to provide flexible GPU access
 #[derive(Default)]
 pub struct GpuPlugin;
 

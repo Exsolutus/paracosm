@@ -1,5 +1,7 @@
 use anyhow::Result;
 use bevy_asset::{AssetLoader, LoadContext, LoadedAsset};
+use bevy_log::prelude::*;
+use bevy_math::prelude::*;
 use bevy_utils::{BoxedFuture, HashMap};
 use obj::raw::{object::Polygon, RawObj};
 use paracosm_render::{
@@ -90,9 +92,6 @@ pub fn load_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, ObjError> {
 
     let mut indices = MeshIndices::new(vertcount);
 
-    // let mut vertex_position = Vec::with_capacity(vertcount);
-    // let mut vertex_normal = Vec::with_capacity(vertcount);
-    // let mut vertex_texture = Vec::with_capacity(vertcount);
     let mut vertices = Vec::with_capacity(vertcount);
 
     for polygon in &raw.polygons {
@@ -102,9 +101,12 @@ pub fn load_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, ObjError> {
 
                 for ipos in poly {
                     indices.insert((*ipos, 0, 0), || {
-                        // vertex_position.push(convert_position(&raw, *ipos));
-                        // vertex_normal.push(normal);
-                        vertices.push(Vertex::new(convert_position(&raw, *ipos), normal, [1.0, 0.0, 0.0]));
+                        let position = convert_position(&raw, *ipos);
+                        vertices.push(Vertex::new(
+                            position, 
+                            normal, 
+                            position
+                        ));
                     });
                 }
             }
@@ -114,29 +116,36 @@ pub fn load_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, ObjError> {
 
                 for (ipos, itex) in poly {
                     indices.insert((*ipos, 0, *itex), || {
-                        // vertex_position.push(convert_position(&raw, *ipos));
-                        // vertex_normal.push(normal);
-                        // vertex_texture.push(convert_texture(&raw, *itex));
-                        vertices.push(Vertex::new(convert_position(&raw, *ipos), normal, [1.0, 0.0, 0.0]));
+                        let position = convert_position(&raw, *ipos);
+                        vertices.push(Vertex::new(
+                            position, 
+                            normal, 
+                            position
+                        ));
                     });
                 }
             }
             Polygon::PN(poly) if poly.len() == 3 => {
                 for (ipos, inorm) in poly {
                     indices.insert((*ipos, *inorm, 0), || {
-                        // vertex_position.push(convert_position(&raw, *ipos));
-                        // vertex_normal.push(convert_normal(&raw, *inorm));
-                        vertices.push(Vertex::new(convert_position(&raw, *ipos), convert_normal(&raw, *inorm), [1.0, 0.0, 0.0]));
+                        let position = convert_position(&raw, *ipos);
+                        vertices.push(Vertex::new(
+                            position, 
+                            convert_normal(&raw, *inorm), 
+                            position
+                        ));
                     });
                 }
             }
             Polygon::PTN(poly) if poly.len() == 3 => {
                 for (ipos, itex, inorm) in poly {
                     indices.insert((*ipos, *inorm, *itex), || {
-                        // vertex_position.push(convert_position(&raw, *ipos));
-                        // vertex_normal.push(convert_normal(&raw, *inorm));
-                        // vertex_texture.push(convert_texture(&raw, *itex));
-                        vertices.push(Vertex::new(convert_position(&raw, *ipos), convert_normal(&raw, *inorm), [1.0, 0.0, 0.0]));
+                        let position = convert_position(&raw, *ipos);
+                        vertices.push(Vertex::new(
+                            position, 
+                            convert_normal(&raw, *inorm), 
+                            position
+                        ));
                     });
                 }
             }
@@ -144,47 +153,34 @@ pub fn load_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, ObjError> {
         }
     }
 
-    let mut mesh = Mesh::with_geometry(vertices, indices);
-
-    // let vertex = Vertex::new(
-
-    // )
-
-    // mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertex_position);
-    // mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vertex_normal);
-    // if !vertex_texture.is_empty() {
-    //     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vertex_texture);
-    // }
-
-    // mesh.set_indices(Some(Indices::U32(indices.into())));
+    debug!("\npoly count: {} \nvertex count: {} \nindex count: {}", raw.polygons.len(), vertices.len(), indices.indices.len());
+    let mesh = Mesh::with_geometry(vertices, indices.indices);
 
     Ok(mesh)
 }
 
-fn convert_position(raw: &RawObj, index: usize) -> [f32; 3] {
+fn convert_position(raw: &RawObj, index: usize) -> Vec3 {
     let position = raw.positions[index];
-    [position.0, position.1, position.2]
+    Vec3::new(position.0, position.1, position.2)
 }
 
-fn convert_normal(raw: &RawObj, index: usize) -> [f32; 3] {
+fn convert_normal(raw: &RawObj, index: usize) -> Vec3 {
     let normal = raw.normals[index];
-    [normal.0, normal.1, normal.2]
+    Vec3::new(normal.0, normal.1, normal.2)
 }
 
-fn convert_texture(raw: &RawObj, index: usize) -> [f32; 2] {
+fn convert_texture(raw: &RawObj, index: usize) -> Vec3 {
     let tex_coord = raw.tex_coords[index];
     // Flip UV for correct values
-    [tex_coord.0, 1.0 - tex_coord.1]
+    Vec3::new(tex_coord.0, 1.0 - tex_coord.1, 0.0)
 }
 
 /// Simple and inaccurate normal calculation
-fn calculate_normal(raw: &RawObj, polygon: &[usize]) -> [f32; 3] {
-    use bevy_math::Vec3;
-
+fn calculate_normal(raw: &RawObj, polygon: &[usize]) -> Vec3 {
     // Extract triangle
     let triangle: Vec<Vec3> = polygon
         .iter()
-        .map(|index| Vec3::from(convert_position(raw, *index)))
+        .map(|index| convert_position(raw, *index) )
         .collect();
 
     // Calculate normal
@@ -192,5 +188,5 @@ fn calculate_normal(raw: &RawObj, polygon: &[usize]) -> [f32; 3] {
     let v2 = triangle[2] - triangle[0];
     let n = v1.cross(v2);
 
-    n.to_array()
+    n
 }
