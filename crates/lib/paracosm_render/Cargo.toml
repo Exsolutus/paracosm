@@ -35,9 +35,11 @@ bevy_window = "0.9.0"
 
 image = { version = "0.24", default-features = false }
 
-#nalgebra-glm = "0.17.0"
-paracosm_gpu = { path = "../paracosm_gpu" }
+paracosm_gpu.workspace = true
+rust_shaders_shared.workspace = true
+spirv-builder.workspace = true
 
-rust_shaders_shared = { path = "../../../assets/rust_shaders_shared" }
+[build-dependencies]
+anyhow = "1.0.66"
 
-spirv-builder = "0.4.0"
+spirv-builder.workspace = true

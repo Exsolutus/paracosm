@@ -1,16 +1,27 @@
 use crate::device::Device;
+use crate::resource::shader_module::ShaderModule;
 
 use anyhow::{bail, Result};
 use ash::vk;
 use bevy_ecs::system::Resource;
 use bevy_log::prelude::*;
-use nalgebra_glm as glm;
+
+use spirv_std::glam::Mat4;
 
 use std::{
     borrow::Cow,
     ffi::CStr,
     mem::size_of,
     slice
+};
+
+// Reexport
+pub use vk::{
+    PipelineColorBlendAttachmentState,
+    BlendFactor,
+    BlendOp,
+    ColorComponentFlags,
+    Format
 };
 
 /// A [`GraphicsPipeline`] containing shader stages, resource bindings, and vertex information.
@@ -43,20 +54,23 @@ pub struct ComputePipeline {
     device: Device
 }
 
-/// Describes the shader stages, resource bindings, vertex information, and fixed function state of a graphics pipeline.
+
+
+/// Describes the shader stages, resource bindings, vertex input, and fixed function state of a graphics pipeline.
 pub struct GraphicsPipelineInfo {
     pub vertex_stage_info: VertexStageInfo,
     pub fragment_stage_info: FragmentStageInfo,
     // TODO: Refactor to hide ash::vk
     pub input_assembly_state: vk::PipelineInputAssemblyStateCreateInfo,
     pub rasterization_state: vk::PipelineRasterizationStateCreateInfo,
+    pub depth_stencil_state: Option<vk::PipelineDepthStencilStateCreateInfo>,
     pub multisample_state: vk::PipelineMultisampleStateCreateInfo,
     pub descriptor_bindings: Vec<vk::DescriptorSetLayoutBinding>
 }
 
 // TODO: Refactor to hide ash::vk
 pub struct VertexStageInfo {
-    pub shader: vk::ShaderModule,
+    pub shader: ShaderModule,
     pub entry_point: Cow<'static, str>,
     pub vertex_input_desc: VertexInputDescription
 }
@@ -69,7 +83,7 @@ pub struct VertexInputDescription {
 
 // TODO: Refactor to hide ash::vk
 pub struct FragmentStageInfo {
-    pub shader: vk::ShaderModule,
+    pub shader: ShaderModule,
     pub entry_point: Cow<'static, str>,
     pub color_blend_states: Vec<vk::PipelineColorBlendAttachmentState>,
     pub target_states: Vec<vk::Format>
@@ -88,12 +102,12 @@ impl Device {
         let shader_stage_create_infos = [
             vk::PipelineShaderStageCreateInfo::builder()
                 .stage(vk::ShaderStageFlags::VERTEX)
-                .module(info.vertex_stage_info.shader)
+                .module(info.vertex_stage_info.shader.module)
                 .name(unsafe { CStr::from_bytes_with_nul_unchecked(info.vertex_stage_info.entry_point.as_bytes()) })
                 .build(),
             vk::PipelineShaderStageCreateInfo::builder()
                 .stage(vk::ShaderStageFlags::FRAGMENT)
-                .module(info.fragment_stage_info.shader)
+                .module(info.fragment_stage_info.shader.module)
                 .name(unsafe { CStr::from_bytes_with_nul_unchecked(info.fragment_stage_info.entry_point.as_bytes()) })
                 .build()
         ];
@@ -118,20 +132,22 @@ impl Device {
         let input_assembly_state_create_info = info.input_assembly_state;
         let rasterization_state_create_info = info.rasterization_state;
         let multisample_state_create_info = info.multisample_state;
+
+        // Create attachment state infos
         let color_blend_attachment_states = info.fragment_stage_info.color_blend_states.as_slice();
         let color_blend_state_create_info = vk::PipelineColorBlendStateCreateInfo::builder()
             .logic_op(vk::LogicOp::CLEAR)
             .attachments(color_blend_attachment_states);
-        let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::builder();
+        let depth_stencil_state_create_info = info.depth_stencil_state.unwrap();
         let mut pipeline_rendering_create_info = vk::PipelineRenderingCreateInfo::builder()
             .color_attachment_formats(info.fragment_stage_info.target_states.as_slice())
-            .depth_attachment_format(vk::Format::D32_SFLOAT);
+            .depth_attachment_format(vk::Format::D24_UNORM_S8_UINT);
 
         // Create pipeline layouts
         // TODO: expose push constant configuration
         let push_constant = vk::PushConstantRange::builder()
             .offset(0)
-            .size(size_of::<glm::Mat4>() as u32)
+            .size(size_of::<Mat4>() as u32)
             .stage_flags(vk::ShaderStageFlags::VERTEX);
 
         let create_info = vk::DescriptorSetLayoutCreateInfo::builder()

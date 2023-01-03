@@ -2,7 +2,11 @@
 
 // Rust-SpirV shared source
 
-pub use spirv_std::glam::{Mat4, Vec4, Vec3};
+pub use spirv_std::glam;
+
+use glam::{Mat4, Vec3};
+
+
 
 #[derive(Copy, Clone)]
 #[repr(C)]

@@ -25,4 +25,4 @@ bevy_math = "0.9"
 thiserror = "1.0"
 obj-rs = { version = "0.7", default-features = false }
 
-paracosm_render = { path = "../paracosm_render" }
+paracosm_render.workspace = true

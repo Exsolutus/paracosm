@@ -1,46 +1,51 @@
 use crate::window::{WindowSurfaces};
-use crate::{mesh::*, image::*, Pipeline, PipelineManager};
+use crate::{
+    mesh::*, 
+    //image::*, 
+    Pipeline, 
+    PipelineManager
+};
 
 use ash::vk;
-use anyhow::{Result, bail};
 
 use bevy_asset::prelude::*;
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use bevy_time::prelude::*;
-use bevy_window::{Window, Windows};
+use bevy_window::Windows;
 
-use paracosm_gpu::{instance::Instance, device::{Device, Queue}, resource::image as gpu_image, surface::Surface};
-use paracosm_gpu::glm;
+use paracosm_gpu::{instance::Instance, device::{Device, Queue}};
 
-use std::slice;
+use rust_shaders_shared::glam;
+
+
 
 /// This queue is used to enqueue tasks for the GPU to execute asynchronously.
 #[derive(Resource, Clone, Deref, DerefMut)]
 pub struct RenderQueue(pub Queue);
 
-// Types initialized by renderer
-type RendererData = (Device, RenderQueue);
 
 pub fn initialize_renderer(
-    window: &Window,
-    instance: Instance
-) -> Result<RendererData> {
+    windows: Res<Windows>,
+    instance: Res<Instance>,
+    mut commands: Commands
+) {
     // Create Device
-    let window_handle = window.raw_handle();
-    let device = match Device::primary(instance.clone(), window_handle) {
-        Ok(result) => result,
-        Err(error) => bail!("Renderer::render_system: {}", error.to_string()),
+    let Some(window) = windows.get_primary() else {
+        return error!("No windows found for application!");
     };
+    let window_handle = window.raw_handle();
+
+    let device = Device::primary(instance.clone(), window_handle)
+        .expect("Device support");
 
     // Get first Graphics queue
-    let graphics_queue = match device.graphics_queue(0) {
-        Ok(result) => result,
-        Err(error) => bail!("Renderer::render_system: {}", error.to_string())
-    };
+    let graphics_queue = device.graphics_queue(0)
+        .expect("GPU should provide a standard graphics queue");
 
-    Ok((device, RenderQueue(graphics_queue)))
+    commands.insert_resource(device);
+    commands.insert_resource(RenderQueue(graphics_queue));
 }
 
 
@@ -54,21 +59,11 @@ pub fn render_system(
     pipeline_assets: Res<Assets<Pipeline>>,
     mesh_handles: Res<MeshManager>,
     mut mesh_assets: ResMut<Assets<Mesh>>,
-    image_handles: Res<ImageManager>,
-    mut image_assets: ResMut<Assets<Image>>,
+    // image_handles: Res<ImageManager>,
+    // mut image_assets: ResMut<Assets<Image>>,
     time: NonSend<Time>
 ) {
     //let _span = info_span!("present_frames").entered();
-
-    // // Remove ViewTarget components to ensure swap chain TextureViews are dropped.
-    // // If all TextureViews aren't dropped before present, acquiring the next swap chain texture will fail.
-    // let view_entities = world
-    //     .query_filtered::<Entity, With<ViewTarget>>()
-    //     .iter(world)
-    //     .collect::<Vec<_>>();
-    // for view_entity in view_entities {
-    //     world.entity_mut(view_entity).remove::<ViewTarget>();
-    // }
 
     // TODO: convert window iteration to Views and simultaneous presentation
     // Render for each active window surface
@@ -96,37 +91,17 @@ pub fn render_system(
         };
 
         // Do rendering tasks
-        if let Some(Pipeline::Graphics(pipeline)) = match pipeline_handles.pipelines.get("test.rs") {
+        if let Some(Pipeline::Graphics(pipeline)) = match pipeline_handles.pipelines.get("mesh_pipeline") {
             Some(value) => pipeline_assets.get(value),
             None => None
         } {
             unsafe {
-                let model = glm::rotate(
-                    &glm::identity(),
-                    time.elapsed_seconds() * 0.5 * glm::radians(&glm::vec1(90.0))[0],
-                    &glm::vec3(0.0, 0.0, 1.0)
-                );
-                let view = glm::look_at(
-                    &glm::vec3(2.0, 2.0, 2.0),
-                    &glm::vec3(0.0, 0.0, 0.0),
-                    &glm::vec3(0.0, 0.0, 1.0),
-                );
-                let mut proj = glm::perspective(
-                    extent.width as f32 / extent.height as f32,
-                    glm::radians(&glm::vec1(45.0))[0],
-                    0.1,
-                    10.0
-                );
-                proj[(1, 1)] *= -1.0;
-                let render_matrix = proj * view * model;
-
-                let (_, render_matrix_bytes, _) = render_matrix.as_slice().align_to::<u8>();
-
-
                 let viewports = [
                     vk::Viewport::builder()
                         .width(extent.width as f32)
                         .height(extent.height as f32)
+                        .min_depth(1.0)
+                        .max_depth(0.0)
                         .build()
                 ];
                 let scissors = [extent.into()];
@@ -146,31 +121,68 @@ pub fn render_system(
                         Err(error) => return error!("Renderer::render_system: {}", error)
                     };
 
-                    device.cmd_push_constants(command_buffer, pipeline.pipeline_layout, vk::ShaderStageFlags::VERTEX, 0, render_matrix_bytes);
+                    // Mesh A
+                    let mut proj = glam::Mat4::perspective_infinite_rh(
+                        45_f32.to_radians(), 
+                        extent.width as f32 / extent.height as f32, 
+                        0.1, 
+                    );
+                    proj.y_axis *= -1.0;
+                    let view = glam::Mat4::look_at_rh(
+                        glam::vec3(2.0, 2.0, 2.0), 
+                        glam::Vec3::ZERO,
+                        glam::Vec3::Y
+                    );
+
+                    let model = glam::Mat4::from_scale_rotation_translation(
+                        glam::Vec3::ONE, 
+                        glam::Quat::from_axis_angle(glam::Vec3::Y, time.elapsed_seconds() * 45_f32.to_radians()), 
+                        glam::Vec3::ZERO
+                    );
+
+                    let render_matrix = proj * view * model;
+    
+                    let render_matrix_slice = render_matrix.to_cols_array();
+
+                    device.cmd_push_constants(command_buffer, pipeline.pipeline_layout, vk::ShaderStageFlags::VERTEX, 0, render_matrix_slice.align_to::<u8>().1);
+                    device.cmd_draw_indexed(command_buffer, mesh.index_count() as u32, 1, 0, 0, 0);
+
+                    // Mesh B
+                    let model = glam::Mat4::from_scale_rotation_translation(
+                        glam::Vec3::ONE, 
+                        glam::Quat::from_axis_angle(glam::Vec3::Y, time.elapsed_seconds() * -45_f32.to_radians()), 
+                        glam::vec3(0.0, -0.2, 0.0)
+                    );
+
+                    let render_matrix = proj * view * model;
+    
+                    let render_matrix_slice = render_matrix.to_cols_array();
+
+                    device.cmd_push_constants(command_buffer, pipeline.pipeline_layout, vk::ShaderStageFlags::VERTEX, 0, render_matrix_slice.align_to::<u8>().1);
                     device.cmd_draw_indexed(command_buffer, mesh.index_count() as u32, 1, 0, 0, 0);
                 }
 
-                let image_handle = image_handles.images.get("test");
-                if let Some(image) = match image_handle {
-                    Some(value) => image_assets.get_mut(value),
-                    None => None
-                } {
-                    let skipped = image.upload(&device).unwrap();
+                // let image_handle = image_handles.images.get("test");
+                // if let Some(image) = match image_handle {
+                //     Some(value) => image_assets.get_mut(value),
+                //     None => None
+                // } {
+                //     let skipped = image.upload(&device).unwrap();
 
-                    // if !skipped {
-                    //     // Prepare image for use in shaders
-                    //     match device.transition_image_layout(
-                    //         frame_data.command_buffer,
-                    //         image.gpu_image.as_ref().unwrap(),
-                    //         gpu_image::Format::R8G8B8A8_SRGB,
-                    //         gpu_image::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    //         gpu_image::ImageLayout::SHADER_READ_ONLY_OPTIMAL
-                    //     ) {
-                    //         Ok(_) => (),
-                    //         Err(error) => return error!("Renderer::render_system: {}", error)
-                    //     };
-                    // }
-                }
+                //     // if !skipped {
+                //     //     // Prepare image for use in shaders
+                //     //     match device.transition_image_layout(
+                //     //         frame_data.command_buffer,
+                //     //         image.gpu_image.as_ref().unwrap(),
+                //     //         gpu_image::Format::R8G8B8A8_SRGB,
+                //     //         gpu_image::ImageLayout::TRANSFER_DST_OPTIMAL,
+                //     //         gpu_image::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+                //     //     ) {
+                //     //         Ok(_) => (),
+                //     //         Err(error) => return error!("Renderer::render_system: {}", error)
+                //     //     };
+                //     // }
+                // }
             }
         }
 

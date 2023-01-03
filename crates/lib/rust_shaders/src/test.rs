@@ -1,7 +1,7 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
 
 
-use glam::{Vec4, Vec3};
+use glam::{Vec4, Vec3, Vec4Swizzles};
 use spirv_std::{glam, spirv};
 
 use rust_shaders_shared::{
@@ -29,7 +29,9 @@ pub fn main_vs(
 pub fn main_fs(
     #[spirv(push_constant)] constants: &ShaderConstants,
     frag_color: Vec4,
+    #[spirv(frag_coord)] frag_coord: Vec4,
     out_color: &mut Vec4,
 ) {
+    //*out_color = frag_coord.wwww();
     *out_color = frag_color;
 }

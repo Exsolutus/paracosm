@@ -1,7 +1,7 @@
 use crate::device::Device;
 use crate::resource::image::*;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use ash::extensions::khr;
 use ash::vk;
 
@@ -21,8 +21,6 @@ pub(super) struct Swapchain {
     pub image_format: vk::Format,
     pub image_extent: vk::Extent2D,
     pub images: Vec<Image>,
-    // pub images: Vec<vk::Image>,
-    // pub image_views: Vec<vk::ImageView>,
     pub depth_images: Vec<Image>
 }
 
@@ -87,14 +85,14 @@ impl Swapchain {
         for i in 0..images.len() {
             let create_info = ImageInfo {
                 image_type: ImageType::TYPE_2D,
-                image_format: Format::D32_SFLOAT,
+                image_format: Format::D24_UNORM_S8_UINT,
                 image_extent: Extent3D { width: surface_extent.width, height: surface_extent.height, depth: 1 },
                 mip_levels: 1,
                 array_layers: 1,
                 samples: SampleCountFlags::TYPE_1,
                 tiling: ImageTiling::OPTIMAL,
                 usage: ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-                aspect: ImageAspectFlags::DEPTH,
+                aspect: ImageAspectFlags::DEPTH | ImageAspectFlags::STENCIL,
                 memory_location: MemoryLocation::GpuOnly
             };
             depth_images.push(device.create_image(format!("Depth Buffer {}", i).as_str(), create_info, None)?);
@@ -133,10 +131,6 @@ impl Drop for Swapchain {
         unsafe {
             let _ = self.device.device_wait_idle();
 
-            
-            // self.image_views.iter().for_each(|image_view| {
-            //     self.device.destroy_image_view(*image_view, None)
-            // });
             self.images.clear();
             self.destroy_swapchain(self.handle, None);
         }

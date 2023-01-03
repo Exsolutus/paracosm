@@ -8,7 +8,7 @@ use bevy_ecs::system::Resource;
 use bevy_log::prelude::*;
 use bevy_window::RawHandleWrapper;
 use gpu_allocator::{vulkan::*, AllocatorDebugSettings};
-use std::{ops::Deref, os::raw::c_char, slice, sync::{Arc, Mutex}, any::Any};
+use std::{ops::Deref, os::raw::c_char, slice, sync::{Arc, Mutex}};
 
 pub use ash::vk::Queue;
 

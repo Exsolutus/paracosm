@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use ash::vk;
 
 use bevy_app::{App, Plugin};
-use bevy_asset::{AddAsset, AssetEvent, AssetLoader, Assets, AssetServer, Handle, LoadContext, LoadedAsset};
+use bevy_asset::{AddAsset, Handle};
 use bevy_ecs::{system::Resource};
 use bevy_log::prelude::*;
 use bevy_reflect::TypeUuid;

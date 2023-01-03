@@ -1,13 +1,15 @@
 [workspace]
 members = [
-    "assets/rust_shaders",
-    "assets/rust_shaders_shared",
-
     "crates/bin/test_example",
 
     "crates/lib/paracosm_gpu",
     "crates/lib/paracosm_obj",
     "crates/lib/paracosm_render",
+    
+    "crates/lib/rust_shaders_shared",
+]
+exclude = [
+    "crates/lib/rust_shaders",
 ]
 
 [workspace.package]
@@ -19,8 +21,12 @@ repository = ""
 
 [workspace.dependencies]
 paracosm_gpu = { path = "crates/lib/paracosm_gpu" }
-#paracosm_obj = { path = "crates/paracosm_obj" }
+paracosm_obj = { path = "crates/lib/paracosm_obj" }
 paracosm_render = { path = "crates/lib/paracosm_render" }
+rust_shaders_shared = { path = "crates/lib/rust_shaders_shared" }
+
+spirv-builder = "0.4.0"
+spirv-std = { version = "0.4.0", features = ["glam"] }
 
 # Enable a small amount of optimization in debug mode
 [profile.dev]

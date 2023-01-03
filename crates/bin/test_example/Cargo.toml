@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-paracosm_obj = { path = "../../lib/paracosm_obj" }
-paracosm_render = { path = "../../lib/paracosm_render" }
-bevy = { version = "0.9.0", default-features = false, features = ["bevy_asset", "bevy_winit", "dynamic", "mp3"] }
+paracosm_gpu = { workspace = true }
+paracosm_obj = { workspace = true }
+paracosm_render = { workspace = true }
+bevy = { version = "0.9.0", default-features = false, features = ["bevy_asset", "bevy_winit", "mp3"] }

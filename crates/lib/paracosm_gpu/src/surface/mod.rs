@@ -15,9 +15,7 @@ use bevy_window::{PresentMode, RawHandleWrapper};
 
 use std::{
     cell::RefCell,
-    ops::Deref,
     slice,
-    string::String, borrow::Borrow
 };
 
 
@@ -180,11 +178,16 @@ impl Surface {
                 vk::ImageLayout::UNDEFINED, 
                 vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
             )?;
-            // TODO: depth target
+            self.device.transition_image_layout(
+                frame_data.command_buffer,
+                depth_target,
+                vk::ImageLayout::UNDEFINED,
+                vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+            )?;
 
             // Begin rendering
             let color_attachment_info = vk::RenderingAttachmentInfo::builder()
-                .image_view(swapchain.images[self.frame_index].image_view)
+                .image_view(render_target.image_view)
                 .image_layout(vk::ImageLayout::ATTACHMENT_OPTIMAL)
                 .load_op(vk::AttachmentLoadOp::CLEAR)
                 .store_op(vk::AttachmentStoreOp::STORE)
@@ -192,12 +195,12 @@ impl Surface {
                     color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 1.0] }
                 });
             let depth_attachment_info = vk::RenderingAttachmentInfo::builder()
-                .image_view(swapchain.depth_images[self.frame_index].image_view)
-                .image_layout(vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL)
+                .image_view(depth_target.image_view)
+                .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
                 .load_op(vk::AttachmentLoadOp::CLEAR)
                 .store_op(vk::AttachmentStoreOp::STORE)
                 .clear_value(vk::ClearValue {
-                    depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 }
+                    depth_stencil: vk::ClearDepthStencilValue { depth: 0.0, stencil: 0 }
                 });
             let rendering_info = vk::RenderingInfo::builder()
                 .render_area(vk::Rect2D::builder()
@@ -206,8 +209,9 @@ impl Surface {
                     .build()
                 )
                 .layer_count(1)
-                .color_attachments(slice::from_ref(&color_attachment_info));
-                //.depth_attachment(&depth_attachment_info);
+                .color_attachments(slice::from_ref(&color_attachment_info))
+                .depth_attachment(&depth_attachment_info);
+                
             self.device.cmd_begin_rendering(frame_data.command_buffer, &rendering_info);
         }
 
@@ -220,9 +224,7 @@ impl Surface {
         };
         let swapchain = swapchain.borrow();
 
-        let extent = swapchain.image_extent;
         let render_target = &swapchain.images[self.frame_index];
-        let depth_target = &swapchain.depth_images[self.frame_index];
         
         // Get current frame data
         let frame_data = &self.frame_data[self.frame_index];
@@ -230,7 +232,7 @@ impl Surface {
         unsafe {
             // End rendering
             self.device.cmd_end_rendering(frame_data.command_buffer);
-            
+
             // Transition attachments layouts to optimal
             self.device.transition_image_layout(
                 frame_data.command_buffer, 
@@ -238,7 +240,6 @@ impl Surface {
                 vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL, 
                 vk::ImageLayout::PRESENT_SRC_KHR
             )?;
-            // TODO: depth target
 
             // End command recording
             self.device.end_command_buffer(frame_data.command_buffer)?;
@@ -293,7 +294,7 @@ impl Surface {
 
     pub fn queue_present(&mut self, queue: vk::Queue) -> Result<bool> {
         let frame_data = &self.frame_data[self.frame_index];
-        
+
         let Some(swapchain) = &self.swapchain else {
             bail!("Surface has no swapchain!");
         };

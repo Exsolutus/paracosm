@@ -1,12 +1,11 @@
 
-use ash::vk;
 use anyhow::{bail, Result};
-use bevy_app::{App, AppExit, Plugin, CoreStage};
-use bevy_asset::{AddAsset, AssetEvent, AssetLoader, Assets, AssetServer, Handle, LoadContext, LoadedAsset};
-use bevy_ecs::{prelude::*, schedule::ShouldRun, system::Resource};
-use bevy_log::prelude::*;
+use bevy_app::Plugin;
+use bevy_asset::{AddAsset, AssetLoader, Handle, LoadContext, LoadedAsset};
+use bevy_ecs::system::Resource;
+
 use bevy_reflect::{TypeUuid};
-use bevy_utils::{BoxedFuture, HashSet};
+use bevy_utils::BoxedFuture;
 
 use image::{
     DynamicImage,
@@ -139,7 +138,7 @@ impl AssetLoader for ImageLoader {
         load_context: &'a mut LoadContext,
     ) -> BoxedFuture<'a, anyhow::Result<(), anyhow::Error>> {
         Box::pin(async move {
-            let name = load_context.path().file_name();
+            //let name = load_context.path().file_name();
 
             let image = match ImageReader::with_format(Cursor::new(bytes), ImageFormat::Png).decode() {
                 Ok(result) => result,

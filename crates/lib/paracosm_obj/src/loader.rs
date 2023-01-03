@@ -144,7 +144,7 @@ pub fn load_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, ObjError> {
                         vertices.push(Vertex::new(
                             position, 
                             convert_normal(&raw, *inorm), 
-                            position
+                            Vec3::from((*itex as f32, *itex as f32, *itex as f32))
                         ));
                     });
                 }

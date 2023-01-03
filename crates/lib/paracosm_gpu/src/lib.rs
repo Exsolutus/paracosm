@@ -12,9 +12,6 @@ use bevy_log::prelude::*;
 
 use std::{ffi::CStr, ffi::CString};
 
-// Expose glm
-pub use nalgebra_glm as glm;
-
 
 /// Vulkan abstractions exposed through Bevy plugin to provide flexible GPU access
 #[derive(Default)]

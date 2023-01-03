@@ -174,7 +174,6 @@ impl Device {
 
         unsafe { self.bind_image_memory(image, allocation.memory(), allocation.offset())? };
 
-
         // Create image view
         let create_info = vk::ImageViewCreateInfo::builder()
             .view_type(info.image_type)
@@ -227,6 +226,13 @@ impl Device {
                 vk::AccessFlags::empty(),
                 vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+            ),
+            // Depth attachment transitions
+            (vk::ImageLayout::UNDEFINED, vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL) => (
+                vk::AccessFlags::empty(),
+                vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
             ),
             // Data transfer transitions
             (vk::ImageLayout::UNDEFINED, vk::ImageLayout::TRANSFER_DST_OPTIMAL) => (
