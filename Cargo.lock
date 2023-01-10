@@ -2187,6 +2187,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust_shaders"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "rust_shaders_shared",
+ "spirv-std",
+]
+
+[[package]]
 name = "rust_shaders_shared"
 version = "0.1.0"
 dependencies = [
@@ -2209,8 +2218,7 @@ checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 [[package]]
 name = "rustc_codegen_spirv"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ea7712b3de402aa159d0073fba3e025836f921847490f3663743eb8d6bf0220"
+source = "git+https://github.com/LykenSol/rust-gpu?branch=buffer-interface-block#2e5dc06d8bf7d8781f47c37b965c00aec0bb61bc"
 dependencies = [
  "ar",
  "either",
@@ -2222,7 +2230,7 @@ dependencies = [
  "regex",
  "rspirv",
  "rustc-demangle",
- "rustc_codegen_spirv-types",
+ "rustc_codegen_spirv-types 0.4.0 (git+https://github.com/LykenSol/rust-gpu?branch=buffer-interface-block)",
  "sanitize-filename",
  "serde",
  "serde_json",
@@ -2237,6 +2245,15 @@ name = "rustc_codegen_spirv-types"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f00bec144cf0240b503dce9fa0dd3bca1e94da3726ddbf2df055bc6155430c1b"
+dependencies = [
+ "rspirv",
+ "serde",
+]
+
+[[package]]
+name = "rustc_codegen_spirv-types"
+version = "0.4.0"
+source = "git+https://github.com/LykenSol/rust-gpu?branch=buffer-interface-block#2e5dc06d8bf7d8781f47c37b965c00aec0bb61bc"
 dependencies = [
  "rspirv",
  "serde",
@@ -2433,7 +2450,7 @@ dependencies = [
  "memchr",
  "raw-string",
  "rustc_codegen_spirv",
- "rustc_codegen_spirv-types",
+ "rustc_codegen_spirv-types 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
 ]

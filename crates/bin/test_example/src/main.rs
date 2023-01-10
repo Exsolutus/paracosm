@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 //use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 
-use paracosm_gpu::{device::Device, resource::pipeline::*};
+use paracosm_gpu::{resource::pipeline::*};
 use paracosm_obj::ObjPlugin;
-use paracosm_render::{RenderPlugin, image::*, mesh::*, Shader, ShaderManager, Pipeline, PipelineManager};
+use paracosm_render::{RenderPlugin, RenderContext, image::*, mesh::*, Shader, ShaderManager, Pipeline, PipelineManager};
 
 use std::{
     borrow::Cow,
@@ -27,7 +27,7 @@ fn main() {
 }
 
 fn load_assets(
-    device: Res<Device>,
+    render_context: Res<RenderContext>,
     asset_server: Res<AssetServer>,
     mut mesh_assets: ResMut<Assets<Mesh>>,
     mut shader_assets: ResMut<Assets<Shader>>,
@@ -37,6 +37,10 @@ fn load_assets(
     mut shader_manager: ResMut<ShaderManager>,
     mut pipeline_manager: ResMut<PipelineManager>
 ) {
+    let device = &render_context.device;
+    let resource_manager = &render_context.resource_manager;
+    let pipeline_layout = resource_manager.pipeline_layouts[0];
+
     // TODO: properly move into Bevy scene
     // Load/create assets
     let image_handle: Handle<Image> = asset_server.load("textures/texture.png");
@@ -59,11 +63,11 @@ fn load_assets(
     let module = device.create_shader_module(&path).unwrap();
     let vertex_shader = Shader {
         module: module.clone(),
-        entry_point: Cow::from("main_vs\0")
+        entry_point: Cow::from("test::main_vs\0")
     };
     let fragment_shader = Shader {
         module,
-        entry_point: Cow::from("main_fs\0")
+        entry_point: Cow::from("test::main_fs\0")
     };
 
     // Create mesh pipeline
@@ -95,7 +99,8 @@ fn load_assets(
             target_states: vec![
                 Format::B8G8R8A8_UNORM
             ]
-        }
+        },
+        pipeline_layout
     ).expect("Graphics pipeline should exist");
 
     let vs_handle = shader_assets.add(vertex_shader);

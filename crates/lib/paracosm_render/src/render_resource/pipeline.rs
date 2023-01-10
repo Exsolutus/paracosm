@@ -1,6 +1,5 @@
 
 use anyhow::Result;
-use ash::vk;
 
 use bevy_app::{App, Plugin};
 use bevy_asset::{AddAsset, Handle};
@@ -26,54 +25,41 @@ impl Pipeline {
     pub fn graphics(
         device: Device,
         vertex_stage_info: VertexStageInfo,
-        fragment_stage_info: FragmentStageInfo
+        fragment_stage_info: FragmentStageInfo,
+        pipeline_layout: PipelineLayout
     ) -> Result<Self> {
         let pipeline_info = GraphicsPipelineInfo {
             vertex_stage_info,
             fragment_stage_info,
-            input_assembly_state: vk::PipelineInputAssemblyStateCreateInfo::builder()
-                .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+            input_assembly_state: PipelineInputAssemblyStateCreateInfo::builder()
+                .topology(PrimitiveTopology::TRIANGLE_LIST)
                 .primitive_restart_enable(false)
                 .build(),
-            rasterization_state: vk::PipelineRasterizationStateCreateInfo::builder()
+            rasterization_state: PipelineRasterizationStateCreateInfo::builder()
                 .depth_clamp_enable(false)
                 .rasterizer_discard_enable(false)
-                .polygon_mode(vk::PolygonMode::FILL)
+                .polygon_mode(PolygonMode::FILL)
                 .line_width(1.0)
-                .cull_mode(vk::CullModeFlags::BACK)
-                .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+                .cull_mode(CullModeFlags::BACK)
+                .front_face(FrontFace::COUNTER_CLOCKWISE)
                 .depth_bias_enable(false)
                 .depth_bias_constant_factor(0.0)
                 .depth_bias_clamp(0.0)
                 .depth_bias_slope_factor(0.0)
                 .build(),
-            depth_stencil_state: Some(vk::PipelineDepthStencilStateCreateInfo::builder()
+            depth_stencil_state: Some(PipelineDepthStencilStateCreateInfo::builder()
                 .depth_test_enable(true)
                 .depth_write_enable(true)
-                .depth_compare_op(vk::CompareOp::GREATER_OR_EQUAL)
+                .depth_compare_op(CompareOp::GREATER_OR_EQUAL)
                 .depth_bounds_test_enable(false)
                 .stencil_test_enable(false)
                 .build()),
-            multisample_state: vk::PipelineMultisampleStateCreateInfo::builder()
-                .rasterization_samples(vk::SampleCountFlags::TYPE_1)
+            multisample_state: PipelineMultisampleStateCreateInfo::builder()
+                .rasterization_samples(SampleCountFlags::TYPE_1)
                 .build(),
-            descriptor_bindings: vec![
-                vk::DescriptorSetLayoutBinding::builder()  // Vertex Input Attributes
-                    .binding(0)
-                    .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                    .descriptor_count(1)
-                    .stage_flags(vk::ShaderStageFlags::VERTEX)
-                    .build(),
-                vk::DescriptorSetLayoutBinding::builder()   // Combined Image Sampler
-                    .binding(1)
-                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                    .descriptor_count(1)
-                    .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-                    .build()
-            ]
         };
 
-        Ok(Pipeline::Graphics(device.create_graphics_pipeline(pipeline_info)?))
+        Ok(Pipeline::Graphics(device.create_graphics_pipeline(pipeline_info, pipeline_layout)?))
     }
 }
 

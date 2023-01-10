@@ -341,6 +341,13 @@ impl Device {
         )
     }
 
+    pub fn limits(&self) -> vk::PhysicalDeviceLimits {
+        unsafe {
+            let properties = self.instance.get_physical_device_properties(self.physical_device);
+            properties.limits
+        }
+    }
+
     pub fn graphics_queue(&self, queue_index: u32) -> Result<Queue> {
         let queue = (queue_index < self.queues.graphics_count).then(|| {
             unsafe { self.get_device_queue(self.queues.graphics_family, queue_index) }
@@ -410,8 +417,8 @@ impl Deref for Device {
     }
 }
 
-impl Drop for Device {
-    fn drop(&mut self) {
-        info!("Dropping ref to Device!");
-    }
-}
+// impl Drop for Device {
+//     fn drop(&mut self) {
+//         info!("Dropping ref to Device!");
+//     }
+// }

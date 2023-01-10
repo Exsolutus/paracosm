@@ -17,7 +17,10 @@ fn main() -> Result<()> {
     println!("cargo:rustc-env=PROFILE={}", profile);
 
     let compile_result = SpirvBuilder::new(Path::new("../rust_shaders"), "spirv-unknown-vulkan1.2")
-        .print_metadata(MetadataPrintout::None)
+        .print_metadata(MetadataPrintout::Full)
+        .capability(Capability::RuntimeDescriptorArray)
+        .extension("SPV_EXT_descriptor_indexing")
+        .preserve_bindings(true)
         //.multimodule(true)
         .build()?;
 

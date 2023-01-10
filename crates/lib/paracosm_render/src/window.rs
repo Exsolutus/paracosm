@@ -1,3 +1,4 @@
+use crate::RenderContext;
 
 use ash::vk::Extent2D;
 
@@ -6,9 +7,11 @@ use bevy_ecs::prelude::*;
 use bevy_log::prelude::*;
 use bevy_window::{WindowClosed, WindowId, WindowResized, Windows};
 
-use paracosm_gpu::{device::Device, surface::Surface};
+use paracosm_gpu::surface::Surface;
 
 use std::collections::{HashMap, HashSet};
+
+
 
 /// Token to ensure a system runs on the main thread.
 #[derive(Default, Resource)]
@@ -37,12 +40,14 @@ pub fn process_windows(
     // By accessing a NonSend resource, we tell the scheduler to put this system on the main thread,
     // which is necessary for some OS s
     _marker: NonSend<NonSendMarker>,
-    device: Res<Device>,
+    render_context: Res<RenderContext>,
     windows: Res<Windows>,
     mut window_surfaces: NonSendMut<WindowSurfaces>,
     mut resized: EventReader<WindowResized>,
     mut closed: EventReader<WindowClosed>,
 ) {
+    let device = &render_context.device;
+
     // Check for resized windows
     resized.iter().for_each(|resized_window| {
         debug!("Window {} resized to {} x {}", resized_window.id, resized_window.width, resized_window.height);

@@ -131,11 +131,11 @@ impl Deref for Instance {
     }
 }
 
-impl Drop for Instance {
-    fn drop(&mut self) {
-        info!("Dropping ref to Instance!");
-    }
-}
+// impl Drop for Instance {
+//     fn drop(&mut self) {
+//         info!("Dropping ref to Instance!");
+//     }
+// }
 
 /// Vulkan Debug Utils callback function
 #[cfg(debug_assertions)]

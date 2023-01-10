@@ -22,7 +22,7 @@ use std::{
 /// Public API for interacting with the Vulkan surface.
 pub struct Surface {
     device: Device,
-    _present_queue_index: u32,
+    graphics_queue: vk::Queue,
 
     surface: khr::Surface,
     surface_handle: vk::SurfaceKHR,
@@ -41,9 +41,9 @@ impl Surface {
     ) -> Self {
         let instance = &device.instance;
         
-        // Select presentation queue for device
-        // TODO: evaluate all queues and select best
-        let present_queue_index = device.queues.graphics_family;
+        // Get first Graphics queue
+        let graphics_queue = device.graphics_queue(0)
+            .expect("Device should provide a standard graphics queue");
 
         // Create surface from window
         let surface = khr::Surface::new(&instance.entry, &instance);
@@ -68,7 +68,7 @@ impl Surface {
 
         Self {
             device,
-            _present_queue_index: present_queue_index,
+            graphics_queue,
             surface,
             surface_handle,
             swapchain: None,
@@ -218,7 +218,7 @@ impl Surface {
         Ok(frame_data.command_buffer)
     }
 
-    pub fn end_rendering(&self, queue: vk::Queue) -> Result<()> {
+    pub fn end_rendering(&self) -> Result<()> {
         let Some(swapchain) = &self.swapchain else {
             bail!("Surface has no swapchain!");
         };
@@ -253,7 +253,7 @@ impl Surface {
                     .command_buffers(slice::from_ref(&frame_data.command_buffer))
                     .build()
             ];
-            self.device.queue_submit(queue, submit_infos, frame_data.in_flight_fence)?
+            self.device.queue_submit(self.graphics_queue, submit_infos, frame_data.in_flight_fence)?
         }
 
         Ok(())
@@ -292,7 +292,7 @@ impl Surface {
         }
     }
 
-    pub fn queue_present(&mut self, queue: vk::Queue) -> Result<bool> {
+    pub fn queue_present(&mut self) -> Result<bool> {
         let frame_data = &self.frame_data[self.frame_index];
 
         let Some(swapchain) = &self.swapchain else {
@@ -307,7 +307,7 @@ impl Surface {
             .image_indices(indices);
 
         unsafe {
-            swapchain.queue_present(queue, present_info)?;
+            swapchain.queue_present(self.graphics_queue, present_info)?;
         }
 
         Ok(false)

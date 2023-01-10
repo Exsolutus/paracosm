@@ -11,7 +11,8 @@ use glam::{Mat4, Vec3};
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct ShaderConstants {
-    pub render_matrix: Mat4
+    pub render_matrix: Mat4,
+    pub mesh_handle: u32
 }
 
 #[repr(C)]

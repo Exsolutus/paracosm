@@ -6,13 +6,10 @@ use ash::vk;
 use bevy_ecs::system::Resource;
 use bevy_log::prelude::*;
 
-use spirv_std::glam::Mat4;
-
 use std::{
     borrow::Cow,
     ffi::CStr,
-    mem::size_of,
-    slice
+    slice, 
 };
 
 // Reexport
@@ -21,8 +18,21 @@ pub use vk::{
     BlendFactor,
     BlendOp,
     ColorComponentFlags,
-    Format
+    Format,
+    PipelineInputAssemblyStateCreateInfo,
+    PrimitiveTopology,
+    PipelineRasterizationStateCreateInfo,
+    PolygonMode,
+    CullModeFlags,
+    FrontFace,
+    PipelineDepthStencilStateCreateInfo,
+    CompareOp,
+    PipelineMultisampleStateCreateInfo,
+    SampleCountFlags,
+    PipelineLayout
 };
+
+
 
 /// A [`GraphicsPipeline`] containing shader stages, resource bindings, and vertex information.
 /// 
@@ -30,9 +40,7 @@ pub use vk::{
 #[derive(Clone, Resource)]
 pub struct GraphicsPipeline {
     device: Device,
-    descriptor_set_layout: vk::DescriptorSetLayout,
     pub pipeline: vk::Pipeline,
-    pub pipeline_layout: vk::PipelineLayout
 }
 
 impl Drop for GraphicsPipeline {
@@ -42,8 +50,6 @@ impl Drop for GraphicsPipeline {
             self.device.device_wait_idle().unwrap();
             
             self.device.destroy_pipeline(self.pipeline, None);
-            self.device.destroy_pipeline_layout(self.pipeline_layout, None);
-            self.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
         }
     }
 }
@@ -65,7 +71,6 @@ pub struct GraphicsPipelineInfo {
     pub rasterization_state: vk::PipelineRasterizationStateCreateInfo,
     pub depth_stencil_state: Option<vk::PipelineDepthStencilStateCreateInfo>,
     pub multisample_state: vk::PipelineMultisampleStateCreateInfo,
-    pub descriptor_bindings: Vec<vk::DescriptorSetLayoutBinding>
 }
 
 // TODO: Refactor to hide ash::vk
@@ -96,7 +101,8 @@ impl Device {
     /// Create a new [`GraphicsPipeline`] from [`GraphicsPipelineInfo`]
     pub fn create_graphics_pipeline(
         &self,
-        info: GraphicsPipelineInfo
+        info: GraphicsPipelineInfo,
+        layout: vk::PipelineLayout
     ) -> Result<GraphicsPipeline> {
         // Create shader stage infos
         let shader_stage_create_infos = [
@@ -143,27 +149,7 @@ impl Device {
             .color_attachment_formats(info.fragment_stage_info.target_states.as_slice())
             .depth_attachment_format(vk::Format::D24_UNORM_S8_UINT);
 
-        // Create pipeline layouts
-        // TODO: expose push constant configuration
-        let push_constant = vk::PushConstantRange::builder()
-            .offset(0)
-            .size(size_of::<Mat4>() as u32)
-            .stage_flags(vk::ShaderStageFlags::VERTEX);
 
-        let create_info = vk::DescriptorSetLayoutCreateInfo::builder()
-            .bindings(&info.descriptor_bindings);
-        let descriptor_set_layout = unsafe { self.create_descriptor_set_layout(&create_info, None)? };
-
-        let set_layouts = &[descriptor_set_layout];
-        let create_info = vk::PipelineLayoutCreateInfo::builder()
-            .push_constant_ranges(slice::from_ref(&push_constant))
-            .set_layouts(set_layouts);
-        let pipeline_layout = unsafe {
-            match self.create_pipeline_layout(&create_info, None) {
-                Ok(result) => result,
-                Err(_) => bail!("Failed to create pipeline layout!".to_string())
-            }
-        };
 
         // Create pipeline
         let create_info = vk::GraphicsPipelineCreateInfo::builder()
@@ -177,7 +163,7 @@ impl Device {
             .multisample_state(&multisample_state_create_info)
             .color_blend_state(&color_blend_state_create_info)
             .depth_stencil_state(&depth_stencil_state_create_info)
-            .layout(pipeline_layout);
+            .layout(layout);
         let pipeline = unsafe {
             match self.create_graphics_pipelines(vk::PipelineCache::null(), slice::from_ref(&create_info), None) {
                 Ok(result) => result,
@@ -187,9 +173,7 @@ impl Device {
 
         Ok(GraphicsPipeline {
             device: self.clone(),
-            descriptor_set_layout,
             pipeline,
-            pipeline_layout
         })
     }
 }

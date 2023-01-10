@@ -1,10 +1,11 @@
-use crate::window::{WindowSurfaces};
+use crate::window::WindowSurfaces;
 use crate::{
     mesh::*, 
     //image::*, 
     Pipeline, 
     PipelineManager
 };
+
 
 use ash::vk;
 
@@ -15,16 +16,22 @@ use bevy_log::prelude::*;
 use bevy_time::prelude::*;
 use bevy_window::Windows;
 
-use paracosm_gpu::{instance::Instance, device::{Device, Queue}};
+use paracosm_gpu::{
+    instance::Instance, 
+    device::{Device, Queue}, 
+    resource::ResourceManager,
+};
 
-use rust_shaders_shared::glam;
+use rust_shaders_shared::{self, glam};
 
 
 
-/// This queue is used to enqueue tasks for the GPU to execute asynchronously.
-#[derive(Resource, Clone, Deref, DerefMut)]
-pub struct RenderQueue(pub Queue);
-
+/// The [`RenderContext`] resource provides access to the renderer's GPU resources
+#[derive(Resource)]
+pub struct RenderContext {
+    pub device: Device,
+    pub resource_manager: ResourceManager
+}
 
 pub fn initialize_renderer(
     windows: Res<Windows>,
@@ -38,21 +45,25 @@ pub fn initialize_renderer(
     let window_handle = window.raw_handle();
 
     let device = Device::primary(instance.clone(), window_handle)
-        .expect("Device support");
+        .expect("Vulkan should find a Device with required support");
 
-    // Get first Graphics queue
-    let graphics_queue = device.graphics_queue(0)
-        .expect("GPU should provide a standard graphics queue");
+    // Create GPU resource manager
+    let resource_manager = ResourceManager::new(&device)
+        .expect("A ResourceManager should be created for the Device");
 
-    commands.insert_resource(device);
-    commands.insert_resource(RenderQueue(graphics_queue));
+    commands.insert_resource(
+        RenderContext {
+            device,
+            resource_manager
+        }
+    )
 }
+
 
 
 // Renderer main loop
 pub fn render_system(
-    device: Res<Device>,
-    queue: Res<RenderQueue>,
+    render_context: Res<RenderContext>,
     windows: Res<Windows>,
     mut window_surfaces: NonSendMut<WindowSurfaces>,
     pipeline_handles: Res<PipelineManager>,
@@ -63,6 +74,10 @@ pub fn render_system(
     // mut image_assets: ResMut<Assets<Image>>,
     time: NonSend<Time>
 ) {
+    let device = &render_context.device;
+    let resource_manager = &render_context.resource_manager;
+    let pipeline_layout = resource_manager.pipeline_layouts[0];
+
     //let _span = info_span!("present_frames").entered();
 
     // TODO: convert window iteration to Views and simultaneous presentation
@@ -116,7 +131,7 @@ pub fn render_system(
                 } {
                     mesh.upload(&device).unwrap();
 
-                    match mesh.bind(device.as_ref(), command_buffer) {
+                    match mesh.bind(&device, command_buffer) {
                         Ok(_) => (),
                         Err(error) => return error!("Renderer::render_system: {}", error)
                     };
@@ -141,10 +156,14 @@ pub fn render_system(
                     );
 
                     let render_matrix = proj * view * model;
-    
-                    let render_matrix_slice = render_matrix.to_cols_array();
 
-                    device.cmd_push_constants(command_buffer, pipeline.pipeline_layout, vk::ShaderStageFlags::VERTEX, 0, render_matrix_slice.align_to::<u8>().1);
+                    let push_constant = [rust_shaders_shared::ShaderConstants {
+                        render_matrix,
+                        mesh_handle: 0
+                    }];
+                    let (_, push_constant_bytes, _) = push_constant.align_to::<u8>();
+
+                    device.cmd_push_constants(command_buffer, pipeline_layout, vk::ShaderStageFlags::VERTEX, 0, push_constant_bytes);
                     device.cmd_draw_indexed(command_buffer, mesh.index_count() as u32, 1, 0, 0, 0);
 
                     // Mesh B
@@ -156,9 +175,13 @@ pub fn render_system(
 
                     let render_matrix = proj * view * model;
     
-                    let render_matrix_slice = render_matrix.to_cols_array();
+                    let push_constant = [rust_shaders_shared::ShaderConstants {
+                        render_matrix,
+                        mesh_handle: 0
+                    }];
+                    let (_, push_constant_bytes, _) = push_constant.align_to::<u8>();
 
-                    device.cmd_push_constants(command_buffer, pipeline.pipeline_layout, vk::ShaderStageFlags::VERTEX, 0, render_matrix_slice.align_to::<u8>().1);
+                    device.cmd_push_constants(command_buffer, pipeline_layout, vk::ShaderStageFlags::VERTEX, 0, push_constant_bytes);
                     device.cmd_draw_indexed(command_buffer, mesh.index_count() as u32, 1, 0, 0, 0);
                 }
 
@@ -187,13 +210,13 @@ pub fn render_system(
         }
 
         // End rendering
-        if let Err(error) = surface.end_rendering(queue.0) {
+        if let Err(error) = surface.end_rendering() {
             error!("Renderer::render_system: {}", error);
             continue;
         };
 
         // Present rendered image to surface
-        if let Err(error) = surface.queue_present(queue.0) {
+        if let Err(error) = surface.queue_present() {
             error!("Renderer::render_system: {}", error);
             continue;
         };

@@ -6,11 +6,12 @@ members = [
     "crates/lib/paracosm_obj",
     "crates/lib/paracosm_render",
     
+    "crates/lib/rust_shaders",
     "crates/lib/rust_shaders_shared",
 ]
-exclude = [
-    "crates/lib/rust_shaders",
-]
+# exclude = [
+#     "crates/lib/rust_shaders",
+# ]
 
 [workspace.package]
 version = "0.1.0"
@@ -27,6 +28,9 @@ rust_shaders_shared = { path = "crates/lib/rust_shaders_shared" }
 
 spirv-builder = "0.4.0"
 spirv-std = { version = "0.4.0", features = ["glam"] }
+
+[patch.crates-io]
+rustc_codegen_spirv = { git = "https://github.com/LykenSol/rust-gpu", branch = "buffer-interface-block" }
 
 # Enable a small amount of optimization in debug mode
 [profile.dev]

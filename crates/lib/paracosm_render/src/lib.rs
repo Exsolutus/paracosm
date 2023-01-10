@@ -1,12 +1,13 @@
 pub mod image;
 pub mod mesh;
-mod raster;
+mod renderer;
 mod render_resource;
 mod window;
 
 use crate::image::*;
 use mesh::*;
-use raster::*;
+use renderer::*;
+pub use renderer::RenderContext;
 pub use render_resource::{
     pipeline::*,
     shader::*
