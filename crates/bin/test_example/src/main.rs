@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-//use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
+use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 
 use paracosm_gpu::{resource::pipeline::*};
 use paracosm_obj::ObjPlugin;
@@ -18,8 +18,8 @@ fn main() {
 
     App::new()
         .add_plugins(DefaultPlugins)
-        //.add_plugin(FrameTimeDiagnosticsPlugin::default())
-        //.add_plugin(LogDiagnosticsPlugin::default())
+        // .add_plugin(FrameTimeDiagnosticsPlugin::default())
+        // .add_plugin(LogDiagnosticsPlugin::default())
         .add_plugin(ObjPlugin)
         .add_plugin(RenderPlugin)
         .add_startup_system(load_assets)
@@ -53,8 +53,7 @@ fn load_assets(
         Vertex::new(Vec3::new(-0.5, 0.5, 0.0), Vec3::new(0.0, 0.0, 0.0), Vec3::new(1.0, 1.0, 1.0)),
     ];
     let indices = vec![0, 1, 2, 2, 3, 0];
-    let mut mesh = Mesh::with_geometry(vertices, indices);
-    mesh.upload(&device).unwrap();
+    let mesh = Mesh::with_geometry(vertices, indices);
 
     let square_handle = mesh_assets.add(mesh);
 

@@ -1,4 +1,5 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
+#![feature(asm_experimental_arch)]
 
 // Rust-SpirV shared source
 
@@ -8,15 +9,43 @@ use glam::{Mat4, Vec3};
 
 
 
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct ShaderConstants {
-    pub render_matrix: Mat4,
-    pub mesh_handle: u32
+/// A [`ResourceHandle`] provides access to a specific resource found in the bindless descriptor set
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[repr(transparent)]
+pub struct ResourceHandle(u32);
+
+#[cfg(not(target_arch = "spirv"))]
+impl ResourceHandle {
+    pub fn new(index: u32) -> Self {
+        Self(index)
+    }
+
+    pub fn index(&self) -> u32 {
+        self.0
+    }
 }
 
+
+
+/// Global push constants for all shaders
+#[derive(Copy, Clone, PartialEq)]
 #[repr(C)]
-#[derive(Clone, Copy)]
+pub struct ShaderConstants {
+    pub camera_matrix: Mat4,
+    pub object_buffer_handle: ResourceHandle
+}
+
+/// Object data for instanced rendering
+#[derive(Copy, Clone, PartialEq)]
+#[repr(C)]
+pub struct ObjectData {
+    pub model_matrix: Mat4
+}
+
+
+
+#[derive(Copy, Clone, PartialEq)]
+#[repr(C)]
 pub struct Vertex {
     pub position: Vec3,
     pub normal: Vec3,
@@ -24,6 +53,7 @@ pub struct Vertex {
 }
 
 // Rust only source
+pub mod typed_buffer;
 
 #[cfg(not(target_arch = "spirv"))] use std::mem::size_of;
 #[cfg(not(target_arch = "spirv"))] use ash::vk;

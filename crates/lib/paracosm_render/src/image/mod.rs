@@ -47,10 +47,10 @@ impl Image {
         // Create staging buffer
         let size = (self.image.width() * self.image.height()) as usize * size_of::<u32>();
         let info = gpu_buffer::BufferInfo::new(size, gpu_buffer::BufferUsageFlags::TRANSFER_SRC, gpu_buffer::MemoryLocation::CpuToGpu);
-        let staging_buffer = device.create_buffer("Image Staging Buffer", info, None)?;
+        let staging_buffer = device.create_buffer("Image Staging Buffer", info, None);
 
         // Copy data to staging buffer
-        staging_buffer.write_buffer(&self.image.as_bytes().to_vec())?;
+        staging_buffer.write_buffer(&self.image.as_bytes().to_vec());
 
         // Create GPU image
         let create_info = gpu_image::ImageInfo {

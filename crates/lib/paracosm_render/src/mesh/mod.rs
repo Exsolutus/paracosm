@@ -1,18 +1,32 @@
+use crate::{
+    render_asset::*,
+    RenderContext
+};
+
 use anyhow::{Result, bail};
-use ash::vk;
 
 use bevy_app::{App, Plugin};
 use bevy_asset::{AddAsset, Handle};
-use bevy_ecs::{system::Resource};
+use bevy_ecs::{
+    system::{
+        lifetimeless::SRes,
+        Resource,
+        SystemParamItem
+    }
+};
 use bevy_log::prelude::*;
 use bevy_reflect::TypeUuid;
 use bevy_utils::{HashMap};
 
-use paracosm_gpu::{resource::buffer::*, device::Device};
-pub use rust_shaders_shared::Vertex;
+use paracosm_gpu::{
+    resource:: buffer::*, 
+};
+pub use rust_shaders_shared::{
+    ResourceHandle,
+    Vertex,
+};
 
 use std::mem::size_of;
-use std::slice;
 
 
 
@@ -26,7 +40,8 @@ pub struct MeshPlugin;
 
 impl Plugin for MeshPlugin {
     fn build(&self, app: &mut App) {
-        app.add_asset::<Mesh>();
+        app.add_asset::<Mesh>()
+            .add_plugin(RenderAssetPlugin::<Mesh>::default());
 
         app.insert_resource(MeshManager {
             meshes: HashMap::new()
@@ -35,15 +50,13 @@ impl Plugin for MeshPlugin {
 }
 
 
-
+// TODO: Split Asset and GPU resource, convert in prepare phase
 #[derive(TypeUuid)]
 #[uuid = "c6b21835-2c1b-431e-bf23-806a01591a7c"]
 // #[derive(Resource)]
 pub struct Mesh {
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
-    vertex_buffer: Option<Buffer>,
-    index_buffer: Option<Buffer>
 }
 
 impl Mesh {
@@ -51,8 +64,6 @@ impl Mesh {
         Self {
             vertices: vec![],
             indices: vec![],
-            vertex_buffer: None,
-            index_buffer: None
         }
     }
 
@@ -63,8 +74,6 @@ impl Mesh {
         Self {
             vertices,
             indices,
-            vertex_buffer: None,
-            index_buffer: None
         }
     }
 
@@ -76,58 +85,6 @@ impl Mesh {
         self.indices = indices;
     }
 
-    pub fn upload(&mut self, device: &Device) -> Result<()> {
-        if self.vertex_buffer.is_some() {
-            return Ok(())
-        }
-
-        let vertices_size = size_of::<Vertex>() * self.vertices.len();
-        let indices_size = size_of::<u32>() * self.indices.len();
-
-        // Create staging buffers
-        let info = BufferInfo::new(vertices_size, BufferUsageFlags::TRANSFER_SRC, MemoryLocation::CpuToGpu);
-        let vertex_staging_buffer = device.create_buffer("Vertex Staging Buffer", info, None)?;
-
-        let info = BufferInfo::new(indices_size, BufferUsageFlags::TRANSFER_SRC, MemoryLocation::CpuToGpu);
-        let index_staging_buffer = device.create_buffer("Index Staging Buffer", info, None)?;
-
-        // Copy data to staging buffers
-        vertex_staging_buffer.write_buffer(&self.vertices)?;
-        index_staging_buffer.write_buffer(&self.indices)?;
-
-        // Create GPU buffers
-        let info = BufferInfo::new(vertices_size, BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::VERTEX_BUFFER, MemoryLocation::GpuOnly);
-        let vertex_buffer = device.create_buffer("Vertex Buffer", info, None)?;
-
-        let info = BufferInfo::new(indices_size, BufferUsageFlags::TRANSFER_DST  | BufferUsageFlags::INDEX_BUFFER, MemoryLocation::GpuOnly);
-        let index_buffer = device.create_buffer("Index Buffer", info, None)?;
-
-        // Copy from staging buffers to GPU buffers
-        device.copy_buffer(&vertex_staging_buffer, &vertex_buffer, vertices_size)?;
-        device.copy_buffer(&index_staging_buffer, &index_buffer, indices_size)?;
-
-        self.vertex_buffer = Some(vertex_buffer);
-        self.index_buffer = Some(index_buffer);
-
-        Ok(())
-    }
-
-    pub fn bind(&self, device: &Device, command_buffer: vk::CommandBuffer) -> Result<()> {
-        if self.vertex_buffer.is_none() || self.index_buffer.is_none() {
-            bail!("Attempt to bind mesh not uploaded to GPU");
-        }
-
-        unsafe {
-            let vertex_buffer = self.vertex_buffer.as_ref().unwrap().buffer;
-            let index_buffer = self.index_buffer.as_ref().unwrap().buffer;
-            
-            device.cmd_bind_vertex_buffers(command_buffer, 0, slice::from_ref(&vertex_buffer), &[0]);
-            device.cmd_bind_index_buffer(command_buffer, index_buffer, 0, vk::IndexType::UINT32);
-        }
-
-        Ok(())
-    }
-
     pub fn index_count(&self) -> usize {
         self.indices.len()
     }
@@ -136,5 +93,64 @@ impl Mesh {
 impl Drop for Mesh {
     fn drop(&mut self) {
         info!("Dropping Mesh!");
+    }
+}
+
+
+
+pub struct GpuMesh {
+    pub vertex_buffer: Buffer,
+    pub index_buffer: Buffer,
+    pub index_count: u32
+}
+
+impl RenderAsset for Mesh {
+    type PreparedAsset = GpuMesh;
+    type Param = SRes<RenderContext>;
+
+    fn prepare_asset(
+        source_asset: &Self,
+        param: &mut SystemParamItem<Self::Param>,
+    ) -> Result<Self::PreparedAsset, crate::render_asset::PrepareAssetError> {
+        let device = &param.device;
+
+        let vertices_size = size_of::<Vertex>() * source_asset.vertices.len();
+        let indices_size = size_of::<u32>() * source_asset.indices.len();
+
+        // Create staging buffers
+        let info = BufferInfo::new(vertices_size, BufferUsageFlags::TRANSFER_SRC, MemoryLocation::CpuToGpu);
+        let vertex_staging_buffer = device.create_buffer("Vertex Staging Buffer", info, None);
+
+        let info = BufferInfo::new(indices_size, BufferUsageFlags::TRANSFER_SRC, MemoryLocation::CpuToGpu);
+        let index_staging_buffer = device.create_buffer("Index Staging Buffer", info, None);
+
+        // Copy data to staging buffers
+        vertex_staging_buffer.write_buffer(&source_asset.vertices);
+        index_staging_buffer.write_buffer(&source_asset.indices);
+
+        // Create GPU buffers
+        let info = BufferInfo::new(
+            vertices_size,
+            BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::VERTEX_BUFFER | BufferUsageFlags::STORAGE_BUFFER,
+            MemoryLocation::GpuOnly
+        );
+        let vertex_buffer = device.create_buffer("Vertex Buffer", info, None);
+
+        let info = BufferInfo::new(
+            indices_size,
+            BufferUsageFlags::TRANSFER_DST  | BufferUsageFlags::INDEX_BUFFER | BufferUsageFlags::STORAGE_BUFFER,
+            MemoryLocation::GpuOnly
+        );
+        let index_buffer = device.create_buffer("Index Buffer", info, None);
+
+        // Copy from staging buffers to GPU buffers
+        device.copy_buffer(&vertex_staging_buffer, &vertex_buffer, vertices_size);
+        device.copy_buffer(&index_staging_buffer, &index_buffer, indices_size);
+
+        Ok(GpuMesh {
+            vertex_buffer,
+            index_buffer,
+            index_count: source_asset.index_count() as u32
+        })
     }
 }

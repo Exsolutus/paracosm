@@ -1,5 +1,6 @@
 use crate::instance::Instance;
-use super::utils::vk_to_string;
+
+use crate::utils::vk_to_string;
 
 use anyhow::{Context, Result};
 use ash::extensions::khr;
@@ -53,7 +54,7 @@ pub struct DeviceInternal {
     pub(crate) transfer_queue: Queue,
     pub(crate) transfer_pool: vk::CommandPool,
 
-    pub(crate) allocator: Option<Mutex<Allocator>>
+    pub(crate) allocator: Option<Mutex<Allocator>>,
 }
 
 impl Deref for DeviceInternal {
@@ -259,6 +260,8 @@ impl Device {
             }
         ).unwrap();
 
+
+
         Ok(Self {
             internal: Arc::new(DeviceInternal {
                 instance,
@@ -341,13 +344,6 @@ impl Device {
         )
     }
 
-    pub fn limits(&self) -> vk::PhysicalDeviceLimits {
-        unsafe {
-            let properties = self.instance.get_physical_device_properties(self.physical_device);
-            properties.limits
-        }
-    }
-
     pub fn graphics_queue(&self, queue_index: u32) -> Result<Queue> {
         let queue = (queue_index < self.queues.graphics_count).then(|| {
             unsafe { self.get_device_queue(self.queues.graphics_family, queue_index) }
@@ -400,6 +396,10 @@ impl Device {
         }
         
         Ok(())
+    }
+
+    pub fn limits(&self) -> vk::PhysicalDeviceLimits {
+        unsafe { self.instance.get_physical_device_properties(self.physical_device).limits }
     }
 
     #[inline]

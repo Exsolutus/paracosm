@@ -6,12 +6,12 @@ use ash::vk;
 
 pub struct FrameData {
     device: Device,
-
-    pub render_semaphore: vk::Semaphore,
-    pub in_flight_fence: vk::Fence,
-
+    // Frame sync
+    pub(crate) render_semaphore: vk::Semaphore,
+    pub(crate) in_flight_fence: vk::Fence,
+    // Frame commands
     command_pool: vk::CommandPool,
-    pub command_buffer: vk::CommandBuffer
+    pub command_buffer: vk::CommandBuffer,
 }
 
 impl FrameData {
@@ -54,7 +54,7 @@ impl FrameData {
             render_semaphore,
             in_flight_fence,
             command_pool,
-            command_buffer
+            command_buffer,
         })
     }
 }

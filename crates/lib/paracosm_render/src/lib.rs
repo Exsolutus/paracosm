@@ -1,7 +1,8 @@
 pub mod image;
 pub mod mesh;
-mod renderer;
+mod render_asset;
 mod render_resource;
+mod renderer;
 mod window;
 
 use crate::image::*;

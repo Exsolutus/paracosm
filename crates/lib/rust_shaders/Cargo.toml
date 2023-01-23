@@ -12,8 +12,8 @@ doctest = false
 
 
 [dependencies]
-rust_shaders_shared = { path = "../rust_shaders_shared", default-features = false }
-spirv-std = { version = "0.4.0", features = ["glam"] }
+rust_shaders_shared.workspace = true
+spirv-std.workspace = true
 #macaw = { version = "0.17.2", default-features = false, features = ["libm"] }
 
 [build-dependencies]
