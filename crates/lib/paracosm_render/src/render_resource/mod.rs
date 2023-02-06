@@ -7,17 +7,69 @@ use anyhow::{Result, Context};
 use ash::vk;
 
 use std::{
-    collections::VecDeque,
+    collections::{
+        HashMap,
+        VecDeque
+    },
     mem::size_of,
-    sync::Mutex,
+    sync::Mutex
 };
 
 use paracosm_gpu::{
     device::Device,
-    resource::buffer::Buffer
+    resource::{
+        buffer::*,
+        image::*,
+        sampler::*
+    }
 };
-use rust_shaders_shared::ResourceHandle;
+use rust_shaders_shared::{
+    ShaderConstants,
+    ResourceHandle,
+    STORAGE_BUFFER_BINDING,
+    STORAGE_IMAGE_BINDING,
+    SAMPLED_IMAGE_BINDING,
+    SAMPLER_BINDING
+};
 
+
+
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
+enum ResourceType {
+    #[default] StorageBuffer,
+    StorageImage,
+    SampledImage,
+    Sampler
+}
+
+#[derive(Default)]
+struct ResourcePool {
+    resource_type: ResourceType,
+    pub(self) next_index: Mutex<u32>,
+    pub(self) recycled_handles: Mutex<VecDeque<ResourceHandle>>
+}
+
+impl ResourcePool{
+    fn fetch_handle(&self) -> ResourceHandle {
+        self.recycled_handles
+            .lock()
+            .unwrap()
+            .pop_front()
+            .map_or_else(
+                || ResourceHandle::new(self.increment_index()), 
+                |recycled_handle| recycled_handle
+            )
+    }
+
+    fn increment_index(&self) -> u32 {
+        let mut next_index = self.next_index.lock().unwrap();  // Lock index
+        let current_index = next_index.clone(); // Clone current index value
+        *next_index += 1;   // Iterate index
+
+        current_index
+    }
+}
 
 pub struct ResourceManager {
     pub device: Device,
@@ -25,9 +77,7 @@ pub struct ResourceManager {
     descriptor_set_layout: vk::DescriptorSetLayout,
     pub(crate) descriptor_set: vk::DescriptorSet,
     pub pipeline_layouts: Vec<vk::PipelineLayout>,
-    // TODO: track resource handles per resource type
-    next_index: Mutex<u32>,
-    recycled_handles: Mutex<VecDeque<ResourceHandle>>
+    resource_pools: HashMap<ResourceType, ResourcePool>
 }
 
 impl ResourceManager {
@@ -39,6 +89,18 @@ impl ResourceManager {
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::STORAGE_BUFFER,
                 descriptor_count: limits.max_descriptor_set_storage_buffers
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::STORAGE_IMAGE,
+                descriptor_count: limits.max_descriptor_set_storage_images
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::SAMPLED_IMAGE,
+                descriptor_count: limits.max_descriptor_set_sampled_images
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::SAMPLER,
+                descriptor_count: limits.max_descriptor_set_samplers
             },
         ];
 
@@ -53,17 +115,36 @@ impl ResourceManager {
         // Create descriptor layouts
         let descriptor_bindings = vec![
             vk::DescriptorSetLayoutBinding::builder()
-                .binding(0)  // TODO: bindings as constants
+                .binding(STORAGE_BUFFER_BINDING)
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(limits.max_descriptor_set_storage_buffers)
                 .stage_flags(vk::ShaderStageFlags::ALL)
                 .build(),
+            vk::DescriptorSetLayoutBinding::builder()
+                .binding(STORAGE_IMAGE_BINDING)
+                .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                .descriptor_count(limits.max_descriptor_set_storage_images)
+                .stage_flags(vk::ShaderStageFlags::ALL)
+                .build(),
+            vk::DescriptorSetLayoutBinding::builder()
+                .binding(SAMPLED_IMAGE_BINDING)
+                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                .stage_flags(vk::ShaderStageFlags::ALL)
+                .descriptor_count(limits.max_descriptor_set_sampled_images)
+                .build(),
+            vk::DescriptorSetLayoutBinding::builder()
+                .binding(SAMPLER_BINDING)
+                .descriptor_type(vk::DescriptorType::SAMPLER)
+                .stage_flags(vk::ShaderStageFlags::ALL)
+                .descriptor_count(limits.max_descriptor_set_samplers)
+                .build(),
         ];
 
         let descriptor_binding_flags = vec![
-            vk::DescriptorBindingFlags::PARTIALLY_BOUND |
-            vk::DescriptorBindingFlags::UPDATE_AFTER_BIND //|
-            //vk::DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT
+            vk::DescriptorBindingFlags::PARTIALLY_BOUND | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND | vk::DescriptorBindingFlags::UPDATE_UNUSED_WHILE_PENDING,
+            vk::DescriptorBindingFlags::PARTIALLY_BOUND | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND | vk::DescriptorBindingFlags::UPDATE_UNUSED_WHILE_PENDING,
+            vk::DescriptorBindingFlags::PARTIALLY_BOUND | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND | vk::DescriptorBindingFlags::UPDATE_UNUSED_WHILE_PENDING,
+            vk::DescriptorBindingFlags::PARTIALLY_BOUND | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND | vk::DescriptorBindingFlags::UPDATE_UNUSED_WHILE_PENDING,
         ];
 
         let descriptor_set_layout = unsafe { device.create_descriptor_set_layout(
@@ -89,8 +170,8 @@ impl ResourceManager {
         let push_constants = vec![
             vk::PushConstantRange::builder()
                 .offset(0)
-                .size((size_of::<u32>() * 20) as u32) // TODO: generalize push constant size(s)
-                .stage_flags(vk::ShaderStageFlags::VERTEX)
+                .size((size_of::<ShaderConstants>()) as u32) // TODO: generalize push constant size(s)
+                .stage_flags(vk::ShaderStageFlags::ALL)
                 .build(),
         ];
         
@@ -102,15 +183,33 @@ impl ResourceManager {
         ).context("Device should create a pipeline layout")? };
         let pipeline_layouts = vec![pipeline_layout];
 
+
+        // Create resource pools
+        let mut resource_pools = HashMap::new();
+        resource_pools.insert(ResourceType::StorageBuffer, ResourcePool {
+            resource_type: ResourceType::StorageBuffer,
+            ..Default::default()
+        });
+        resource_pools.insert(ResourceType::StorageImage, ResourcePool {
+            resource_type: ResourceType::StorageImage,
+            ..Default::default()
+        });
+        resource_pools.insert(ResourceType::SampledImage, ResourcePool {
+            resource_type: ResourceType::SampledImage,
+            ..Default::default()
+        });
+        resource_pools.insert(ResourceType::Sampler, ResourcePool {
+            resource_type: ResourceType::Sampler,
+            ..Default::default()
+        });
+
         Ok(ResourceManager {
             device: device.clone(),
             descriptor_pool,
             descriptor_set_layout,
             descriptor_set,
             pipeline_layouts,
-
-            next_index: Mutex::new(0),
-            recycled_handles: Mutex::new(VecDeque::new())
+            resource_pools,
         })
     }
 
@@ -145,15 +244,21 @@ impl ResourceManager {
     }
 
     pub(crate) fn recycle_handle(&self, handle: ResourceHandle) {
-        self.recycled_handles
+        let handle_type = ResourceType::StorageBuffer; // TODO: Get handle type from handle itself. Until then recycle won't work properly.
+
+        let resource_pool = self.resource_pools.get(&handle_type)
+            .expect("ResourceHandle should have a valid ResourceType");
+
+        resource_pool.recycled_handles
             .lock()
             .unwrap()
             .push_back(handle);
     }
 
-    // TODO: track resource handles per resource type
     pub(crate) fn new_buffer_handle(&self, buffer: &Buffer) -> ResourceHandle {
-        let handle = self.fetch_handle();
+        let resource_pool = self.resource_pools.get(&ResourceType::StorageBuffer)
+            .expect("StorageBuffer resource pool should exist");
+        let handle = resource_pool.fetch_handle();
 
         let buffer_info = [
             vk::DescriptorBufferInfo::builder()
@@ -166,7 +271,7 @@ impl ResourceManager {
         let write = [
             vk::WriteDescriptorSet::builder()
                 .dst_set(self.descriptor_set)
-                .dst_binding(0) // TODO: bindings as constants
+                .dst_binding(STORAGE_BUFFER_BINDING)
                 .dst_array_element(handle.index())
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .buffer_info(&buffer_info)
@@ -178,22 +283,90 @@ impl ResourceManager {
         handle
     }
 
-    fn fetch_handle(&self) -> ResourceHandle {
-        self.recycled_handles
-            .lock()
-            .unwrap()
-            .pop_front()
-            .map_or_else(
-                || ResourceHandle::new(self.increment_index()), 
-                |recycled_handle| recycled_handle
-            )
+    pub(crate) fn new_storage_image_handle(&self, image: &Image) -> ResourceHandle {
+        let resource_pool = self.resource_pools.get(&ResourceType::StorageImage)
+            .expect("StorageBuffer resource pool should exist");
+        let handle = resource_pool.fetch_handle();
+
+        let image_info = [
+            vk::DescriptorImageInfo::builder()
+                .image_layout(ImageLayout::GENERAL)
+                .image_view(image.image_view)
+                .sampler(vk::Sampler::null())
+                .build(),
+        ];
+
+        let write = [
+            vk::WriteDescriptorSet::builder()
+                .dst_set(self.descriptor_set)
+                .dst_binding(STORAGE_IMAGE_BINDING)
+                .dst_array_element(handle.index())
+                .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                .image_info(&image_info)
+                .build()
+        ];
+
+        unsafe { self.device.update_descriptor_sets(&write, &[]); }
+
+        handle
     }
 
-    fn increment_index(&self) -> u32 {
-        let index = self.next_index.lock().unwrap().clone(); // Lock, then clone current index and drop lock
-        *self.next_index.lock().unwrap() += 1;  // Lock, then iterate current index
-        index
+    pub(crate) fn new_sampled_image_handle(&self, image: &Image) -> ResourceHandle {
+        let resource_pool = self.resource_pools.get(&ResourceType::SampledImage)
+            .expect("StorageBuffer resource pool should exist");
+        let handle = resource_pool.fetch_handle();
+
+        let image_info = [
+            vk::DescriptorImageInfo::builder()
+                .image_layout(ImageLayout::READ_ONLY_OPTIMAL)
+                .image_view(image.image_view)
+                .sampler(vk::Sampler::null())
+                .build(),
+        ];
+
+        let write = [
+            vk::WriteDescriptorSet::builder()
+                .dst_set(self.descriptor_set)
+                .dst_binding(SAMPLED_IMAGE_BINDING)
+                .dst_array_element(handle.index())
+                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                .image_info(&image_info)
+                .build()
+        ];
+
+        unsafe { self.device.update_descriptor_sets(&write, &[]); }
+
+        handle
     }
+
+    pub(crate) fn new_sampler_handle(&self, sampler: &Sampler) -> ResourceHandle {
+        let resource_pool = self.resource_pools.get(&ResourceType::Sampler)
+            .expect("StorageBuffer resource pool should exist");
+        let handle = resource_pool.fetch_handle();
+
+        let sampler_info = [
+            vk::DescriptorImageInfo::builder()
+                .image_layout(ImageLayout::UNDEFINED)
+                .image_view(vk::ImageView::null())
+                .sampler(**sampler)
+                .build(),
+        ];
+
+        let write = [
+            vk::WriteDescriptorSet::builder()
+                .dst_set(self.descriptor_set)
+                .dst_binding(SAMPLER_BINDING)
+                .dst_array_element(handle.index())
+                .descriptor_type(vk::DescriptorType::SAMPLER)
+                .image_info(&sampler_info)
+                .build()
+        ];
+
+        unsafe { self.device.update_descriptor_sets(&write, &[]); }
+
+        handle
+    }
+
 }
 
 impl Drop for ResourceManager {

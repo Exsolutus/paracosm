@@ -95,7 +95,7 @@ impl Swapchain {
                 aspect: ImageAspectFlags::DEPTH | ImageAspectFlags::STENCIL,
                 memory_location: MemoryLocation::GpuOnly
             };
-            depth_images.push(device.create_image(format!("Depth Buffer {}", i).as_str(), create_info, None)?);
+            depth_images.push(device.create_image(format!("Depth Buffer {}", i).as_str(), create_info, None));
         }
 
 

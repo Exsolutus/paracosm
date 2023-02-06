@@ -105,7 +105,8 @@ pub fn load_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, ObjError> {
                         vertices.push(Vertex::new(
                             position, 
                             normal, 
-                            position
+                            normal,
+                            Vec2::ZERO
                         ));
                     });
                 }
@@ -120,7 +121,8 @@ pub fn load_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, ObjError> {
                         vertices.push(Vertex::new(
                             position, 
                             normal, 
-                            position
+                            normal,
+                            Vec2::ZERO
                         ));
                     });
                 }
@@ -129,10 +131,12 @@ pub fn load_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, ObjError> {
                 for (ipos, inorm) in poly {
                     indices.insert((*ipos, *inorm, 0), || {
                         let position = convert_position(&raw, *ipos);
+                        let normal = convert_normal(&raw, *inorm);
                         vertices.push(Vertex::new(
                             position, 
-                            convert_normal(&raw, *inorm), 
-                            position
+                            normal, 
+                            normal,
+                            Vec2::ZERO
                         ));
                     });
                 }
@@ -141,10 +145,13 @@ pub fn load_obj_from_bytes(bytes: &[u8]) -> Result<Mesh, ObjError> {
                 for (ipos, itex, inorm) in poly {
                     indices.insert((*ipos, *inorm, *itex), || {
                         let position = convert_position(&raw, *ipos);
+                        let normal = convert_normal(&raw, *inorm);
+                        let texture = convert_texture(&raw, *itex);
                         vertices.push(Vertex::new(
                             position, 
-                            convert_normal(&raw, *inorm), 
-                            Vec3::from((*itex as f32, *itex as f32, *itex as f32))
+                            normal, 
+                            normal,
+                            texture
                         ));
                     });
                 }
@@ -169,10 +176,10 @@ fn convert_normal(raw: &RawObj, index: usize) -> Vec3 {
     Vec3::new(normal.0, normal.1, normal.2)
 }
 
-fn convert_texture(raw: &RawObj, index: usize) -> Vec3 {
+fn convert_texture(raw: &RawObj, index: usize) -> Vec2 {
     let tex_coord = raw.tex_coords[index];
     // Flip UV for correct values
-    Vec3::new(tex_coord.0, 1.0 - tex_coord.1, 0.0)
+    Vec2::new(tex_coord.0, 1.0 - tex_coord.1)
 }
 
 /// Simple and inaccurate normal calculation

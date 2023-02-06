@@ -1,3 +1,7 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
+#![feature(asm_experimental_arch)]
 
-pub mod test;
+mod typed_buffer;
+
+pub mod vert;
+pub mod frag;

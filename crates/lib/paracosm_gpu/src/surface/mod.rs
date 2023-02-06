@@ -177,13 +177,13 @@ impl Surface {
                 render_target, 
                 vk::ImageLayout::UNDEFINED, 
                 vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
-            )?;
+            );
             self.device.transition_image_layout(
                 frame_data.command_buffer,
                 depth_target,
                 vk::ImageLayout::UNDEFINED,
                 vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-            )?;
+            );
 
             // Begin rendering
             let color_attachment_info = vk::RenderingAttachmentInfo::builder()
@@ -239,7 +239,7 @@ impl Surface {
                 render_target, 
                 vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL, 
                 vk::ImageLayout::PRESENT_SRC_KHR
-            )?;
+            );
 
             // End command recording
             self.device.end_command_buffer(frame_data.command_buffer)?;

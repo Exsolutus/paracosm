@@ -1,11 +1,14 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
-#![feature(asm_experimental_arch)]
 
 // Rust-SpirV shared source
-
 pub use spirv_std::glam;
+use glam::{Vec2, Vec3, Mat4};
 
-use glam::{Mat4, Vec3};
+
+pub const STORAGE_BUFFER_BINDING: u32 = 0;
+pub const STORAGE_IMAGE_BINDING: u32 = 1;
+pub const SAMPLED_IMAGE_BINDING: u32 = 2;
+pub const SAMPLER_BINDING: u32 = 3;
 
 
 
@@ -14,25 +17,19 @@ use glam::{Mat4, Vec3};
 #[repr(transparent)]
 pub struct ResourceHandle(u32);
 
-#[cfg(not(target_arch = "spirv"))]
 impl ResourceHandle {
-    pub fn new(index: u32) -> Self {
-        Self(index)
-    }
-
     pub fn index(&self) -> u32 {
         self.0
     }
 }
-
-
 
 /// Global push constants for all shaders
 #[derive(Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct ShaderConstants {
     pub camera_matrix: Mat4,
-    pub object_buffer_handle: ResourceHandle
+    pub object_buffer_handle: ResourceHandle,
+    // pub test_image_handle: ResourceHandle
 }
 
 /// Object data for instanced rendering
@@ -42,29 +39,38 @@ pub struct ObjectData {
     pub model_matrix: Mat4
 }
 
-
-
 #[derive(Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct Vertex {
     pub position: Vec3,
     pub normal: Vec3,
     pub color: Vec3,
+    pub uv: Vec2
 }
 
-// Rust only source
-pub mod typed_buffer;
 
+
+// Rust only source
 #[cfg(not(target_arch = "spirv"))] use std::mem::size_of;
 #[cfg(not(target_arch = "spirv"))] use ash::vk;
 
+
+
+#[cfg(not(target_arch = "spirv"))]
+impl ResourceHandle {
+    pub fn new(index: u32) -> Self {
+        Self(index)
+    }
+}
+
 #[cfg(not(target_arch = "spirv"))]
 impl Vertex {
-    pub fn new(position: Vec3, normal: Vec3, color: Vec3) -> Self {
+    pub fn new(position: Vec3, normal: Vec3, color: Vec3, uv: Vec2) -> Self {
         Self {
             position,
             normal,
-            color
+            color,
+            uv
         }
     }
 
@@ -76,7 +82,7 @@ impl Vertex {
             .build()
     }
 
-    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
+    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 4] {
         let position = vk::VertexInputAttributeDescription::builder()
             .binding(0)
             .location(0)
@@ -95,7 +101,13 @@ impl Vertex {
             .format(vk::Format::R32G32B32_SFLOAT)
             .offset(2 * size_of::<Vec3>() as u32)
             .build();
+        let uv = vk::VertexInputAttributeDescription::builder()
+            .binding(0)
+            .location(3)
+            .format(vk::Format::R32G32_SFLOAT)
+            .offset(3 * size_of::<Vec3>() as u32)
+            .build();
 
-        [position, normal, color]
+        [position, normal, color, uv]
     }
 }

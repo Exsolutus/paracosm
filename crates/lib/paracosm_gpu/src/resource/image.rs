@@ -139,11 +139,11 @@ impl Device {
         name: &str, 
         info: ImageInfo,
         data: Option<&[u8]>
-    ) -> Result<Image> {
+    ) -> Image {
         // Create image
         let image_type = match info.image_type {
             vk::ImageViewType::TYPE_2D => vk::ImageType::TYPE_2D,
-            _ => bail!("Unsupported image type")
+            _ => panic!("Unsupported image type")
         };
         let create_info = vk::ImageCreateInfo::builder()
             .image_type(image_type)
@@ -157,7 +157,10 @@ impl Device {
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .initial_layout(vk::ImageLayout::UNDEFINED);
 
-        let image = unsafe { self.logical_device.create_image(&create_info, None)? };
+        let image = unsafe { 
+            self.logical_device.create_image(&create_info, None)
+                .expect("Device should create an image.")
+        };
         let requirements = unsafe { self.logical_device.get_image_memory_requirements(image) };
 
         let allocation = self.allocator
@@ -170,9 +173,13 @@ impl Device {
                 requirements,
                 location: info.memory_location,
                 linear: true
-            })?;
+            })
+            .expect("Image memory should be allocated.");
 
-        unsafe { self.bind_image_memory(image, allocation.memory(), allocation.offset())? };
+        unsafe {
+            self.bind_image_memory(image, allocation.memory(), allocation.offset())
+                .expect("Image memory should be bound on device.")
+        };
 
         // Create image view
         let create_info = vk::ImageViewCreateInfo::builder()
@@ -188,26 +195,28 @@ impl Device {
                 .build()
             );
 
-        let image_view = unsafe { self.logical_device.create_image_view(&create_info, None)? };
+        let image_view = unsafe {
+            self.logical_device.create_image_view(&create_info, None)
+                .expect("Device should create an image view.")
+        };
 
-        Ok(Image {
+        Image {
             device: self.clone(),
             cleanup: true,
             info,
             image,
             image_view,
             allocation: Some(allocation)
-        })
+        }
     }
 
     pub fn transition_image_layout(
         &self,
         command_buffer: vk::CommandBuffer,
         image: &Image,
-        //format: Format,
         old_layout: ImageLayout,
         new_layout: ImageLayout
-    ) -> Result<()> {
+    ) {
         let (
             src_access_mask,
             dst_access_mask,
@@ -247,7 +256,7 @@ impl Device {
                 vk::PipelineStageFlags::TRANSFER,
                 vk::PipelineStageFlags::FRAGMENT_SHADER,
             ),
-            _ => bail!("Unsupported image layout transition!"),
+            _ => panic!("Unsupported image layout transition!"),
         };
 
         let image_barrier = vk::ImageMemoryBarrier::builder()
@@ -277,8 +286,6 @@ impl Device {
                 slice::from_ref(&image_barrier)
             );
         }
-
-        Ok(())
     }
     
     // TODO: robustness/safety for general usage
@@ -306,10 +313,19 @@ impl Device {
 
     pub fn copy_buffer_to_image(
         &self,
-        command_buffer: vk::CommandBuffer,
         buffer: &Buffer,
-        image: &Image
-    ) -> Result<()> {
+        image: &Image,
+    ) {
+        let command_buffer = self.begin_transfer_commands()
+            .expect("Transfer command buffer should begin recording.");
+
+        self.transition_image_layout(
+            command_buffer,
+            &image,
+            ImageLayout::UNDEFINED,
+            ImageLayout::TRANSFER_DST_OPTIMAL
+        );
+
         unsafe {
             let regions = vk::BufferImageCopy::builder()
                 .buffer_offset(0)
@@ -335,6 +351,7 @@ impl Device {
             );
         }
 
-        Ok(())
+        self.end_transfer_commands(command_buffer)
+            .expect("Transfer command buffer should end recording and submit to device.");
     }
 }

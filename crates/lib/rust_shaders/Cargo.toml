@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "test" # Shader name
-# path = "src/test.rs" # Shader path
 crate-type = ["lib", "dylib"]
 test = false
 doctest = false

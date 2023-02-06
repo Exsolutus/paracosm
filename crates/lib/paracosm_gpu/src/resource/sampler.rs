@@ -3,6 +3,8 @@ use crate::device::Device;
 use anyhow::Result;
 use ash::vk;
 
+use std::ops::Deref;
+
 // re-export
 pub use vk::{
     Filter,
@@ -12,6 +14,8 @@ pub use vk::{
     SamplerMipmapMode
 };
 
+
+#[derive(Clone)]
 pub struct SamplerInfo {
     pub filter: (Filter, Filter),
     pub address_mode: (SamplerAddressMode, SamplerAddressMode, SamplerAddressMode),
@@ -23,10 +27,18 @@ pub struct SamplerInfo {
     pub mipmap_lod: (f32, f32, f32)
 }
 
-
+#[derive(Clone)]
 pub struct Sampler {
     device: Device,
     sampler: vk::Sampler
+}
+
+impl Deref for Sampler {
+    type Target = vk::Sampler;
+
+    fn deref(&self) -> &Self::Target {
+        &self.sampler
+    }
 }
 
 impl Drop for Sampler {
@@ -43,8 +55,8 @@ impl Drop for Sampler {
 impl Device {
     pub fn create_sampler(
         &self,
-        info: SamplerInfo
-    ) -> Result<Sampler> {
+        info: &SamplerInfo
+    ) -> Sampler {
         let create_info = vk::SamplerCreateInfo::builder()
             .mag_filter(info.filter.0)
             .min_filter(info.filter.1)
@@ -62,11 +74,14 @@ impl Device {
             .min_lod(info.mipmap_lod.1)
             .max_lod(info.mipmap_lod.2);
 
-        let sampler = unsafe { self.logical_device.create_sampler(&create_info, None)? };
+        let sampler = unsafe {
+            self.logical_device.create_sampler(&create_info, None)
+                .expect("Device should create a sampler.")
+        };
 
-        Ok(Sampler {
+        Sampler {
             device: self.clone(),
             sampler
-        })
+        }
     }
 }

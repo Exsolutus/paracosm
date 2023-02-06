@@ -35,7 +35,7 @@ pub struct MeshManager {
     pub meshes: HashMap<String, Handle<Mesh>>
 }
 
-/// Adds the [`Mesh`] as an asset.
+/// Adds [`Mesh`] to Bevy as a supported asset type
 pub struct MeshPlugin;
 
 impl Plugin for MeshPlugin {
@@ -101,6 +101,8 @@ impl Drop for Mesh {
 pub struct GpuMesh {
     pub vertex_buffer: Buffer,
     pub index_buffer: Buffer,
+    pub vertex_buffer_handle: ResourceHandle,
+    pub index_buffer_handle: ResourceHandle,
     pub index_count: u32
 }
 
@@ -113,6 +115,7 @@ impl RenderAsset for Mesh {
         param: &mut SystemParamItem<Self::Param>,
     ) -> Result<Self::PreparedAsset, crate::render_asset::PrepareAssetError> {
         let device = &param.device;
+        let resource_manager = &param.resource_manager;
 
         let vertices_size = size_of::<Vertex>() * source_asset.vertices.len();
         let indices_size = size_of::<u32>() * source_asset.indices.len();
@@ -147,9 +150,15 @@ impl RenderAsset for Mesh {
         device.copy_buffer(&vertex_staging_buffer, &vertex_buffer, vertices_size);
         device.copy_buffer(&index_staging_buffer, &index_buffer, indices_size);
 
+        // Add buffer to resource manager
+        let vertex_buffer_handle = resource_manager.new_buffer_handle(&vertex_buffer);
+        let index_buffer_handle = resource_manager.new_buffer_handle(&index_buffer);
+
         Ok(GpuMesh {
             vertex_buffer,
             index_buffer,
+            vertex_buffer_handle,
+            index_buffer_handle,
             index_count: source_asset.index_count() as u32
         })
     }

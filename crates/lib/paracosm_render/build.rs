@@ -27,6 +27,11 @@ fn main() -> Result<()> {
     let shader_assets_dir = Path::new("../../../assets/shaders");
     fs::create_dir_all(&shader_assets_dir).context("Creating shader assets directory")?;
 
+    // Write entry points to file
+    let dest_path = Path::new(&shader_assets_dir).join("entry_points.rs");
+    fs::write(dest_path, compile_result.codegen_entry_point_strings()).unwrap();
+
+    // Process compile result
     match &compile_result.module {
         ModuleResult::MultiModule(modules) => {
             for (_, spv_file) in modules.iter() {
