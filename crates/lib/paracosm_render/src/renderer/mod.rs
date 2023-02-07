@@ -5,7 +5,9 @@ use crate::{
     PipelineManager,
     render_asset::RenderAssets,
     render_resource::ResourceManager,
-    window::WindowSurfaces
+    window::WindowSurfaces,
+    Shader, 
+    ShaderManager,
 };
 
 use ash::vk;
@@ -22,16 +24,21 @@ use paracosm_gpu::{
     resource::{
         buffer::*,
         image as gpu_image,
-        sampler as gpu_sampler
+        pipeline::*,
+        sampler as gpu_sampler,
     }
 };
 
 use rust_shaders_shared::glam;
 
 use std::{
+    borrow::Cow,
+    env,
+    path::Path,
     mem::size_of,
     slice
 };
+
 
 
 /// The [`RenderContext`] resource provides access to the renderer's GPU resources
@@ -42,7 +49,7 @@ pub struct RenderContext {
 }
 
 // TODO: Properly implement scene object management
-#[derive(Resource)]
+#[derive(Default, Resource)]
 pub struct SceneData {
     object_buffers: Vec<(Buffer, ResourceHandle)>,
 }
@@ -68,42 +75,16 @@ pub fn initialize_renderer(
         .expect("A ResourceManager should be created for the Device");
 
     // Insert RenderContext
-    commands.insert_resource(
-        RenderContext {
-            device,
-            resource_manager,
-        }
-    );
+    let render_context = RenderContext {
+        device,
+        resource_manager,
+    };
+    
+    initialize_internal_assets(&render_context, &mut commands);
 
-    // Create image samplers
-    commands.add(|world: &mut World| {
-        // Create linear image sampler
-        let sampler = Sampler::new(
-            (gpu_sampler::Filter::LINEAR, gpu_sampler::Filter::LINEAR),
-            (gpu_sampler::SamplerAddressMode::REPEAT, gpu_sampler::SamplerAddressMode::REPEAT, gpu_sampler::SamplerAddressMode::REPEAT),
-            Some(16.0),
-            gpu_sampler::BorderColor::INT_OPAQUE_BLACK,
-            false,
-            None,
-            gpu_sampler::SamplerMipmapMode::LINEAR,
-            (0.0, 0.0, 0.0)
-        );
-
-        let mut sampler_assets = world.get_resource_mut::<Assets<Sampler>>()
-            .expect("Sampler assets resource should exist");
-        let asset_handle = sampler_assets.add(sampler);
-
-        let mut sampler_manager = world.get_resource_mut::<SamplerManager>()
-            .expect("SamplerManager should exist");
-        sampler_manager.samplers.insert("Linear".to_string(), asset_handle);
-    });
-
-    // Insert SceneData
-    commands.insert_resource(
-        SceneData {
-            object_buffers: vec![],
-        }
-    );
+    // Insert renderer resources
+    commands.insert_resource(render_context);
+    commands.insert_resource(SceneData::default());
 }
 
 /// Renderer main loop
@@ -269,4 +250,134 @@ pub fn render_system(
             continue;
         };
     }
+}
+
+
+fn initialize_internal_assets(render_context: &RenderContext, commands: &mut Commands) {
+    let device = &render_context.device;
+    let resource_manager = &render_context.resource_manager;
+    let pipeline_layout = resource_manager.pipeline_layouts[0];
+    
+    // Load shaders
+    let path = Path::new("assets/shaders/rust_shaders.spv");
+    let module = device.create_shader_module(&path).unwrap();
+    let mesh_vert = Shader {
+        module: module.clone(),
+        entry_point: Cow::from("vert::mesh::main\0")
+    };
+    let unlit_frag = Shader {
+        module: module.clone(),
+        entry_point: Cow::from("frag::unlit::main\0")
+    };
+    let textured_lit_frag = Shader {
+        module,
+        entry_point: Cow::from("frag::textured_lit::main\0")
+    };
+
+    // Create mesh pipeline
+    let unlit_pipeline = Pipeline::graphics(
+        device.clone(), 
+        VertexStageInfo {
+            shader: mesh_vert.module.clone(),
+            entry_point: mesh_vert.entry_point.clone(),
+            vertex_input_desc: VertexInputDescription {
+                binding_description: Vertex::binding_description(),
+                attribute_descriptions: Vertex::attribute_descriptions().to_vec()
+            }
+        },
+        FragmentStageInfo {
+            shader: unlit_frag.module.clone(),
+            entry_point: unlit_frag.entry_point.clone(),
+            color_blend_states: vec![
+                PipelineColorBlendAttachmentState::builder()
+                    .blend_enable(false)
+                    .src_color_blend_factor(BlendFactor::SRC_COLOR)
+                    .dst_color_blend_factor(BlendFactor::ONE_MINUS_DST_COLOR)
+                    .color_blend_op(BlendOp::ADD)
+                    .src_alpha_blend_factor(BlendFactor::ZERO)
+                    .dst_alpha_blend_factor(BlendFactor::ZERO)
+                    .alpha_blend_op(BlendOp::ADD)
+                    .color_write_mask(ColorComponentFlags::RGBA)
+                    .build()
+            ],
+            target_states: vec![
+                Format::B8G8R8A8_UNORM
+            ]
+        },
+        pipeline_layout
+    ).expect("Graphics pipeline should be created");
+
+    let textured_lit_pipeline = Pipeline::graphics(
+        device.clone(), 
+        VertexStageInfo {
+            shader: mesh_vert.module.clone(),
+            entry_point: mesh_vert.entry_point.clone(),
+            vertex_input_desc: VertexInputDescription {
+                binding_description: Vertex::binding_description(),
+                attribute_descriptions: Vertex::attribute_descriptions().to_vec()
+            }
+        },
+        FragmentStageInfo {
+            shader: textured_lit_frag.module.clone(),
+            entry_point: textured_lit_frag.entry_point.clone(),
+            color_blend_states: vec![
+                PipelineColorBlendAttachmentState::builder()
+                    .blend_enable(false)
+                    .src_color_blend_factor(BlendFactor::SRC_COLOR)
+                    .dst_color_blend_factor(BlendFactor::ONE_MINUS_DST_COLOR)
+                    .color_blend_op(BlendOp::ADD)
+                    .src_alpha_blend_factor(BlendFactor::ZERO)
+                    .dst_alpha_blend_factor(BlendFactor::ZERO)
+                    .alpha_blend_op(BlendOp::ADD)
+                    .color_write_mask(ColorComponentFlags::RGBA)
+                    .build()
+            ],
+            target_states: vec![
+                Format::B8G8R8A8_UNORM
+            ]
+        },
+        pipeline_layout
+    ).expect("Graphics pipeline should be created");
+
+    // Create linear image sampler
+    let sampler = Sampler::new(
+        (gpu_sampler::Filter::LINEAR, gpu_sampler::Filter::LINEAR),
+        (gpu_sampler::SamplerAddressMode::REPEAT, gpu_sampler::SamplerAddressMode::REPEAT, gpu_sampler::SamplerAddressMode::REPEAT),
+        Some(16.0),
+        gpu_sampler::BorderColor::INT_OPAQUE_BLACK,
+        false,
+        None,
+        gpu_sampler::SamplerMipmapMode::LINEAR,
+        (0.0, 0.0, 0.0)
+    );
+
+    // Add internal assets to world
+    commands.add(|world: &mut World| {
+        // Add shader assets
+        let mut shader_assets = world.resource_mut::<Assets<Shader>>();
+        let mesh_vert_handle = shader_assets.add(mesh_vert);
+        let unlit_frag_handle = shader_assets.add(unlit_frag);
+        let textured_lit_frag_handle = shader_assets.add(textured_lit_frag);
+
+        let mut shader_manager = world.resource_mut::<ShaderManager>();
+        shader_manager.shaders.insert("mesh_vert".to_string(), mesh_vert_handle);
+        shader_manager.shaders.insert("unlit_frag".to_string(), unlit_frag_handle);
+        shader_manager.shaders.insert("textured_lit_frag".to_string(), textured_lit_frag_handle);
+
+        // Add pipeline assets
+        let mut pipeline_assets = world.resource_mut::<Assets<Pipeline>>();
+        let unlit_pipeline_handle = pipeline_assets.add(unlit_pipeline);
+        let textured_lit_pipeline_handle = pipeline_assets.add(textured_lit_pipeline);
+
+        let mut pipeline_manager = world.resource_mut::<PipelineManager>();
+        pipeline_manager.pipelines.insert("unlit_mesh".to_string(), unlit_pipeline_handle);
+        pipeline_manager.pipelines.insert("textured_lit_mesh".to_string(), textured_lit_pipeline_handle);
+
+        // Add sampler assets
+        let mut sampler_assets = world.resource_mut::<Assets<Sampler>>();
+        let asset_handle = sampler_assets.add(sampler);
+
+        let mut sampler_manager = world.resource_mut::<SamplerManager>();
+        sampler_manager.samplers.insert("Linear".to_string(), asset_handle);
+    });
 }
