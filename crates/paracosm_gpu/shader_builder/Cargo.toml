@@ -1,0 +1,13 @@
+[workspace]
+
+[package]
+name = "paracosm_gpu_shader_builder"
+version = "0.1.0"
+publish = false
+authors = ["Exsolutus <exsolutus.dev@gmail.com>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = ""
+
+[dependencies]
+spirv-builder = { git = "https://github.com/Rust-GPU/rust-gpu" }

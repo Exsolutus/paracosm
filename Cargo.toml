@@ -1,14 +1,64 @@
+[workspace]
+members = [
+    "crates/paracosm_gpu",
+        # Tests shader crates
+        "crates/paracosm_gpu/tests/compute/shaders",
+    
+    # Examples shader crates
+    "examples/gpu/hello_compute/shaders"
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+
 [package]
 name = "paracosm"
 version = "0.1.0"
-edition = "2021"
 description = "Paracosm Engine Project"
-exclude = ["crates/"]
+license.workspace = true
 authors = ["Exsolutus <exsolutus.dev@gmail.com>"]
-license = "MIT OR Apache-2.0"
 
-[workspace]
-members = [
-    "crates/*"
-]
-resolver = "2"
+edition.workspace = true
+exclude = ["crates/"]
+
+
+[features]
+default = ["paracosm_gpu/WSI"]
+
+
+[dependencies]
+paracosm_gpu = { path = "crates/paracosm_gpu" }
+
+
+[dev-dependencies]
+bevy = { version = "0.15.1", default-features = false, features = ["bevy_winit"] }
+
+
+[[example]]
+name = "basic_usage"
+path = "examples/gpu/basic_usage.rs"
+
+[[example]]
+name = "hello_compute"
+path = "examples/gpu/hello_compute/main.rs"
+
+
+# Enable a small amount of optimization in the dev profile.
+[profile.dev]
+opt-level = 1
+
+# Enable a large amount of optimization in the dev profile for dependencies.
+[profile.dev.package."*"]
+opt-level = 3
+
+# Enable more optimization in the release profile at the cost of compile time.
+[profile.release]
+# Compile the entire crate as one unit.
+# Slows compile times, marginal improvements.
+codegen-units = 1
+# Do a second optimization pass over the entire program, including dependencies.
+# Slows compile times, marginal improvements.
+lto = "thin"
