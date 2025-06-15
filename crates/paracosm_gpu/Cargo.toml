@@ -18,8 +18,8 @@ paracosm_gpu_macros = { path = "macros" }
 
 anyhow = "1.0.95"
 ash = { version = "0.38.0", features = ["linked"] }
-bevy_ecs = "0.15.1"
-bevy_utils = "0.15.1"
+bevy_ecs = "0.16.1"
+bevy_utils = "0.16.1"
 vk-mem = "0.4.0"
 
 ash-window = { version = "0.13.0", optional = true }

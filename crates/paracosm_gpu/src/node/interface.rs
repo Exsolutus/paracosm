@@ -43,21 +43,21 @@ struct NodeInterface<'w, 's, const Q: char> {
 
 impl<'w, 's> CommandRecorder for ComputeInterface<'w, 's> {
     fn device(&self) -> &ash::Device { &self.inner.commands.device() }
-    fn command_buffer(&self) -> Result<ash::vk::CommandBuffer> { self.inner.commands.current_command_buffer() }
+    fn command_buffer(&self) -> Result<ash::vk::CommandBuffer> { self.inner.commands.command_buffer() }
     fn pipeline<L: PipelineLabel + 'static>(&self, label: L) -> Result<&Pipeline> { self.pipelines.get(label) }
     fn resource<L: ResourceLabel + 'static>(&self, label: L) -> Result<&ResourceIndex<L>> { todo!() }
 }
 
 impl<'w, 's> CommandRecorder for GraphicsInterface<'w, 's> {
     fn device(&self) -> &ash::Device { &self.inner.commands.device() }
-    fn command_buffer(&self) -> Result<ash::vk::CommandBuffer> { self.inner.commands.current_command_buffer() }
+    fn command_buffer(&self) -> Result<ash::vk::CommandBuffer> { self.inner.commands.command_buffer() }
     fn pipeline<L: PipelineLabel + 'static>(&self, label: L) -> Result<&Pipeline> { self.pipelines.get(label) }
     fn resource<L: ResourceLabel + 'static>(&self, label: L) -> Result<&ResourceIndex<L>> { todo!() }
 }
 
 impl<'w, 's> CommandRecorder for TransferInterface<'w, 's> {
     fn device(&self) -> &ash::Device { &self.inner.commands.device() }
-    fn command_buffer(&self) -> Result<ash::vk::CommandBuffer> { self.inner.commands.current_command_buffer() }
+    fn command_buffer(&self) -> Result<ash::vk::CommandBuffer> { self.inner.commands.command_buffer() }
     fn pipeline<L: PipelineLabel + 'static>(&self, _label: L) -> Result<&Pipeline> {
         panic!("This should never panic. Notify library maintainers.")  // Pipelines are not supported on Transfer queues
     }

@@ -6,103 +6,43 @@ use crate::{
     device::LogicalDevice, 
     node::resource::ResourceIndex, 
     pipeline::{Pipeline, PipelineInfo, PipelineLabel}, 
-    queue::Queue, resource::ResourceLabel
+    resource::ResourceLabel
 };
 
 use anyhow::Result;
-use bevy_ecs::system::Resource;
+use bevy_ecs::prelude::Resource;
 
-use std::{cell::UnsafeCell, sync::Arc};
+use std::cell::UnsafeCell;
 
 
-#[derive(Resource, Clone)]
+#[derive(Resource)]
 pub(crate) struct Commands {
-    inner: Arc<CommandsInner>
-}
-
-pub(crate) struct CommandsInner {
     device: *const LogicalDevice,
-    queue: Queue,
-    descriptor_set: ash::vk::DescriptorSet,
-    pipeline_layout: ash::vk::PipelineLayout,
-    current_command_buffer: UnsafeCell<ash::vk::CommandBuffer>,
+    pub command_buffer: UnsafeCell<ash::vk::CommandBuffer>,
 }
-unsafe impl Send for CommandsInner {  }   // HACK: safe while graph execution is single threaded
-unsafe impl Sync for CommandsInner {  }     
+unsafe impl Send for Commands {  }   // HACK: safe while graph execution is single threaded?
+unsafe impl Sync for Commands {  }     
 
-impl std::ops::Deref for Commands {
-    type Target = CommandsInner;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
 
 impl Commands {
     pub fn new(
         device: &LogicalDevice,
-        queue: Queue,
-        descriptor_set: ash::vk::DescriptorSet, 
-        pipeline_layout: ash::vk::PipelineLayout
-    ) -> Result<Self> {
-        Ok(Self { inner: Arc::new(
-            CommandsInner {
-                device,
-                queue,
-                descriptor_set,
-                pipeline_layout,
-                current_command_buffer: ash::vk::CommandBuffer::null().into()
-            }
-        ) })
+        command_buffer: ash::vk::CommandBuffer
+    ) -> Self {
+        Self {
+            device,
+            command_buffer: command_buffer.into()
+        }
     }
 
     pub fn device(&self) -> &LogicalDevice {
         unsafe { self.device.as_ref().unwrap() }
     }
 
-    pub fn current_command_buffer(&self) -> Result<ash::vk::CommandBuffer> {
-        let buffer = unsafe { self.current_command_buffer.get().as_mut().unwrap() };
+    pub fn command_buffer(&self) -> Result<ash::vk::CommandBuffer> {
+        let buffer = unsafe { self.command_buffer.get().as_ref().unwrap() };
 
         Ok(*buffer)
-    }
-
-    pub fn init_command_buffer(&self, buffer: ash::vk::CommandBuffer) -> Result<()> {
-        let device = self.device();
-
-        unsafe {
-            device.begin_command_buffer(buffer, &ash::vk::CommandBufferBeginInfo::default())?;
-
-            device.cmd_bind_descriptor_sets(
-                buffer, 
-                ash::vk::PipelineBindPoint::COMPUTE, 
-                self.pipeline_layout, 
-                0, 
-                std::slice::from_ref(&self.descriptor_set), 
-                &[]
-            );
-            if self.queue == Queue::Graphics {
-                device.cmd_bind_descriptor_sets(
-                    buffer, 
-                    ash::vk::PipelineBindPoint::GRAPHICS, 
-                    self.pipeline_layout, 
-                    0, 
-                    std::slice::from_ref(&self.descriptor_set), 
-                    &[]
-                );
-            }
-            device.cmd_bind_descriptor_sets(
-                buffer, 
-                ash::vk::PipelineBindPoint::RAY_TRACING_KHR, 
-                self.pipeline_layout, 
-                0, 
-                std::slice::from_ref(&self.descriptor_set), 
-                &[]
-            );
-
-            *self.current_command_buffer.get().as_mut().unwrap() = buffer;
-        }
-
-        Ok(())
     }
 }
 

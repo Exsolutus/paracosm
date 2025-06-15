@@ -1,12 +1,13 @@
 pub mod commands;
 
+use ash::vk::SemaphoreSubmitInfo;
 use commands::Commands;
 use crate::device::LogicalDevice;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use bevy_ecs::{
-    schedule::{ExecutorKind, IntoSystemConfigs, IntoSystemSetConfigs, Schedule, ScheduleLabel, SystemSet}, 
-    system::ResMut, 
+    schedule::{ExecutorKind, IntoScheduleConfigs, Schedule, ScheduleLabel, SystemSet}, 
+    system::{ResMut, ScheduleSystem}, 
     world::World
 };
 
@@ -17,99 +18,131 @@ pub enum Queue {
     Compute,
 }
 
-#[derive(SystemSet, PartialEq, Eq, Hash, Clone, Copy, Debug, Default)]
-pub(crate) struct SubmitSet(pub u32);
-
 #[derive(Default)]
 pub struct SubmitInfo {
     pub wait: Box<[(crate::queue::Queue, u32)]>,
     pub signal: Box<[u32]>
 }
 
+#[derive(SystemSet, PartialEq, Eq, Hash, Clone, Copy, Debug, Default)]
+struct SubmitID(pub u32);
+
 #[derive(Default)]
-struct Submit {
-    set: SubmitSet,
-    info: SubmitInfo,
-    buffer: ash::vk::CommandBuffer
+struct SubmitSet {
+    id: SubmitID,
+    command_buffer: ash::vk::CommandBuffer,
+    wait: Box<[(ash::vk::Semaphore, u32)]>,
+    signal: Box<[u32]>
 }
 
 
 pub(crate) struct QueueGraph {
-    schedule: Schedule,
-    submits: Vec<Submit>,
-    commands: Commands,
+    device: *const LogicalDevice,
+    queue_label: Queue,
+    queue: ash::vk::Queue,
+    descriptor_set: ash::vk::DescriptorSet,
+    pipeline_layout: ash::vk::PipelineLayout,
     command_pool: ash::vk::CommandPool,
-    queue_family: u32,
+    schedule: Schedule,
+    submit_sets: Vec<SubmitSet>,
     timeline: ash::vk::Semaphore,
+
+    open_submit: bool,
+    dirty: bool,
 }   
 
 impl QueueGraph {
     pub fn new(
         device: &LogicalDevice,
-        label: Queue,
+        queue_label: Queue,
         queue_family: u32,
         pipeline_layout: ash::vk::PipelineLayout,
         descriptor_set: ash::vk::DescriptorSet
     ) -> Result<Self> {
-        let mut schedule = Schedule::new(label);
+        let queue = unsafe { device.get_device_queue(queue_family, 0) };
+
+        let command_pool_create_info = ash::vk::CommandPoolCreateInfo::default()
+            .queue_family_index(queue_family);
+        let command_pool = unsafe {
+            device.create_command_pool(&command_pool_create_info, None)?
+        };
+
+        let mut schedule = Schedule::new(queue_label);
         schedule.set_executor_kind(ExecutorKind::SingleThreaded);
 
-        // Create queue submit timeline
         let mut semaphore_type_create_info = ash::vk::SemaphoreTypeCreateInfo::default()
             .semaphore_type(ash::vk::SemaphoreType::TIMELINE);
         let semaphore_create_info = ash::vk::SemaphoreCreateInfo::default()
             .push_next(&mut semaphore_type_create_info);
         let timeline = unsafe { device.create_semaphore(&semaphore_create_info, None)? };
 
-        // Create command pool for queue family 
-        let command_pool_create_info = ash::vk::CommandPoolCreateInfo::default()
-            .queue_family_index(queue_family);
-        let command_pool = unsafe {
-            device.create_command_pool(&command_pool_create_info, None)?
-        };
-                
-        // Allocate command buffer for first submit set
-        let buffer = unsafe {
-            device.allocate_command_buffers(
-                &ash::vk::CommandBufferAllocateInfo::default()
-                    .command_pool(command_pool)
-                    .command_buffer_count(1)
-            )?[0]
-        };
-
-        let commands = Commands::new(device, label, descriptor_set, pipeline_layout)?;
-
         Ok(Self {
-            schedule,
-            submits: vec![Submit { buffer, ..Default::default() }].into(),
-            commands,
+            device,
+            queue_label,
+            queue,
+            descriptor_set,
+            pipeline_layout,
             command_pool,
-            queue_family,
+            schedule,
+            submit_sets: vec![],
             timeline,
+            open_submit: true,
+            dirty: false,
         })
     }
 
-    pub fn add_nodes<M>(&mut self, nodes: impl IntoSystemConfigs<M>) {
+    pub fn add_nodes<M>(&mut self, nodes: impl IntoScheduleConfigs<ScheduleSystem, M>) -> Result<()> {
         // TODO: validate node signatures?
 
-        let current_set = self.submits.last().unwrap().set;
+        if !self.open_submit {
+            self.open_submit = true;
+        }
+
+        //     let device = self.commands.device();
+
+        //     // Allocate command buffer for new submit set
+        //     let buffer = unsafe {
+        //         device.allocate_command_buffers(
+        //             &ash::vk::CommandBufferAllocateInfo::default()
+        //                 .command_pool(self.command_pool)
+        //                 .command_buffer_count(1)
+        //         )?[0]
+        //     };
+
+        //     // Initialize new submit
+        //     let next_set = SubmitID(current_set.0 + 1);
+        //     let mut next_submit = SubmitSet { buffer, ..Default::default() };
+        //     next_submit.id = next_set;
+
+        //     // Add next submit after current submit
+        //     self.submit_sets.push(next_submit);
+        //     self.schedule.configure_sets(next_set.after(current_set));
+        // }
+
+        let current_set = SubmitID(self.submit_sets.len() as u32);
         self.schedule.add_systems(
             nodes.in_set(current_set)
         );
+
+        self.dirty = true;
+
+        Ok(())
     }
 
     /// Set current submit info and add next submit set
-    pub fn add_submit(&mut self, info: SubmitInfo) -> Result<u32> {
-        let device = self.commands.device();
+    pub fn add_submit(
+        &mut self,
+        wait: Box<[(ash::vk::Semaphore, u32)]>,
+        signal: Box<[u32]>
+    ) -> Result<u32> {
+        if !self.open_submit {
+            bail!("No nodes added since last submit.")
+        }
 
-        // Update current submit
-        let current_submit = self.submits.last_mut().unwrap();
-        current_submit.info = info;
-
-        let current_set = current_submit.set;
-
-        // Allocate command buffer for next submit set
-        let buffer = unsafe {
+        let device = unsafe { self.device.as_ref().unwrap() };
+        
+        // Allocate command buffer for submit set
+        let command_buffer = unsafe { 
             device.allocate_command_buffers(
                 &ash::vk::CommandBufferAllocateInfo::default()
                     .command_pool(self.command_pool)
@@ -117,81 +150,124 @@ impl QueueGraph {
             )?[0]
         };
 
-        // Initialize next submit
-        let next_set = SubmitSet(current_set.0 + 1);
-        let mut next_submit = Submit { buffer, ..Default::default() };
-        next_submit.set = next_set;
-
-        // Add submit system after current submit set and before next submit set
-        {
-            let queue_family = self.queue_family;       // 
-            let current_buffer = current_submit.buffer; // expose for capture in submit closure
-            let next_buffer = next_submit.buffer;       // 
-
-            let submit = (move |commands: ResMut<Commands>| {
-                let device = commands.device();
-                
-                // Submit current command buffer
-                unsafe { device.end_command_buffer(current_buffer).unwrap(); }
-        
-                let command_buffer_info = ash::vk::CommandBufferSubmitInfo::default()
-                    .command_buffer(current_buffer);
-                let submit_info = ash::vk::SubmitInfo2::default()
-                    .command_buffer_infos(std::slice::from_ref(&command_buffer_info));
-                    // TODO: Signal and wait semaphores
-
-                unsafe {
-                    let queue = device.get_device_queue(queue_family, 0); // TODO: dynamically select compute queue index?
-                    device.queue_submit2(queue, std::slice::from_ref(&submit_info), ash::vk::Fence::null()).unwrap();
-                }
-
-                // Initialize next command buffer
-                commands.init_command_buffer(next_buffer).unwrap();
-            }).after(current_set).before(next_set);
-            self.schedule.add_systems(submit);
+        // Finalize current submit set
+        let index = self.submit_sets.len() as u32;
+        let submit_set = SubmitSet {
+            id: SubmitID(index),
+            command_buffer,
+            wait,
+            signal
+        };
+        let previous_submit_set = self.submit_sets.last();
+        if let Some(set) = previous_submit_set {
+            submit_set.id.after(set.id);
         }
-            
-        // Add next submit after current submit
-        self.submits.push(next_submit);
-        self.schedule.configure_sets(next_set.after(current_set));
 
-        Ok(next_set.0)
+        // Add command buffer swap system after last submit set and before current submit set
+        let mut swap_command_buffer = (move |commands: ResMut<Commands>| {
+            unsafe { *commands.command_buffer.get() = command_buffer; }
+        }).into_configs();
+        swap_command_buffer = match previous_submit_set {
+            Some(set) => swap_command_buffer.before(submit_set.id).after(set.id),
+            None => swap_command_buffer.before(submit_set.id)
+        };
+        self.schedule.add_systems(swap_command_buffer);
+
+        self.schedule.configure_sets(submit_set.id);
+        self.submit_sets.push(submit_set);
+
+        self.open_submit = false;
+
+        Ok(index)
     }
 
-    pub fn run(&mut self, world: &mut World, rebuild: bool) -> Result<()> {
-        if rebuild {
-            world.insert_resource(self.commands.clone());
+    pub fn run(&mut self, world: &mut World) -> Result<()> {
+        let device = unsafe { self.device.as_ref().unwrap() };
 
-            // Initialize first submit command buffer
-            self.commands.init_command_buffer(self.submits[0].buffer)?;
-    
-            // Run schedule to record and submit commands
-            self.schedule.run(world);        
-        } else {
-            for submit in self.submits.iter() {
-                let command_buffer_info = ash::vk::CommandBufferSubmitInfo::default()
-                    .command_buffer(submit.buffer);
-                let submit_info = ash::vk::SubmitInfo2::default()
-                    .command_buffer_infos(std::slice::from_ref(&command_buffer_info));
-                    // TODO: Signal and wait semaphores
-
-                unsafe {
-                    let device = self.commands.device();
-                    
-                    let queue = device.get_device_queue(self.queue_family, 0); // TODO: dynamically select compute queue index?
-                    device.queue_submit2(queue, std::slice::from_ref(&submit_info), ash::vk::Fence::null()).unwrap();
-                }
+        if self.dirty {
+            // Initialize submit command buffers
+            for SubmitSet { command_buffer, .. } in self.submit_sets.iter() {
+                self.init_command_buffer(*command_buffer)?;
             }
+
+            world.insert_resource(Commands::new(device, self.submit_sets[0].command_buffer));
+    
+            // Run schedule to record commands
+            self.schedule.run(world);
+
+            self.dirty = false;
+        }
+
+        // Submit all recorded commands
+        for submit in self.submit_sets.iter() {
+            let signal_semaphore_infos: Vec<SemaphoreSubmitInfo<'_>> = submit.signal.iter().map(|&value| {
+                SemaphoreSubmitInfo::default()
+                    .semaphore(self.timeline)
+                    .value(value as u64)
+            }).collect();
+            let wait_semaphore_infos: Vec<SemaphoreSubmitInfo<'_>> = submit.wait.iter().map(|(semaphore, value)| {
+                SemaphoreSubmitInfo::default()
+                    .semaphore(*semaphore)
+                    .value(*value as u64)
+            }).collect();
+
+            unsafe { device.end_command_buffer(submit.command_buffer)? };
+
+            let command_buffer_info = ash::vk::CommandBufferSubmitInfo::default()
+                .command_buffer(submit.command_buffer);
+            let submit_info = ash::vk::SubmitInfo2::default()
+                .command_buffer_infos(std::slice::from_ref(&command_buffer_info))
+                .signal_semaphore_infos(signal_semaphore_infos.as_slice())
+                .wait_semaphore_infos(wait_semaphore_infos.as_slice());
+
+            unsafe { device.queue_submit2(self.queue, std::slice::from_ref(&submit_info), ash::vk::Fence::null()).unwrap(); }
         }
 
         Ok(())
+    }
+
+    fn init_command_buffer(&self, command_buffer: ash::vk::CommandBuffer) -> Result<()> {
+        unsafe {
+            let device = self.device.as_ref().unwrap();
+
+            device.begin_command_buffer(command_buffer, &ash::vk::CommandBufferBeginInfo::default())?;
+
+            device.cmd_bind_descriptor_sets(
+                command_buffer, 
+                ash::vk::PipelineBindPoint::COMPUTE, 
+                self.pipeline_layout, 
+                0, 
+                std::slice::from_ref(&self.descriptor_set), 
+                &[]
+            );
+            if self.queue_label == Queue::Graphics {
+                device.cmd_bind_descriptor_sets(
+                    command_buffer, 
+                    ash::vk::PipelineBindPoint::GRAPHICS, 
+                    self.pipeline_layout, 
+                    0, 
+                    std::slice::from_ref(&self.descriptor_set), 
+                    &[]
+                );
+            }
+            device.cmd_bind_descriptor_sets(
+                command_buffer, 
+                ash::vk::PipelineBindPoint::RAY_TRACING_KHR, 
+                self.pipeline_layout, 
+                0, 
+                std::slice::from_ref(&self.descriptor_set), 
+                &[]
+            );
+
+            Ok(())
+        }
     }
 }
 
 impl Drop for QueueGraph {
     fn drop(&mut self) {
         unsafe {
-            let device = self.commands.device();
+            let device = self.device.as_ref().unwrap();
 
             device.destroy_semaphore(self.timeline, None);
             device.destroy_command_pool(self.command_pool, None);
@@ -201,14 +277,13 @@ impl Drop for QueueGraph {
 
 
 impl crate::context::Context {
-    pub fn add_nodes<M>(&mut self, queue: Queue, nodes: impl IntoSystemConfigs<M>) -> Result<&mut Self> {
+    pub fn add_nodes<M>(&mut self, queue: Queue, nodes: impl IntoScheduleConfigs<ScheduleSystem, M>) -> Result<&mut Self> {
         let device = &mut self.devices[self.configuring_device as usize];
-        device.dirty = true;
         
         // Add nodes to queue graph in latest submit set
         match queue {
-            Queue::Compute => device.compute_graph.add_nodes(nodes),
-            Queue::Graphics => device.graphics_graph.add_nodes(nodes),
+            Queue::Compute => device.compute_graph.add_nodes::<M>(nodes)?,
+            Queue::Graphics => device.graphics_graph.add_nodes::<M>(nodes)?,
         }
 
         Ok(self)
@@ -216,14 +291,18 @@ impl crate::context::Context {
 
     pub fn add_submit(&mut self, queue: Queue, info: SubmitInfo) -> Result<u32> {
         let device = &mut self.devices[self.configuring_device as usize];
-        device.dirty = true;
+
+        let wait = info.wait.iter().map(|(queue, value)| {
+            match queue {
+                Queue::Compute => (device.compute_graph.timeline, *value),
+                Queue::Graphics => (device.graphics_graph.timeline, *value)
+            }
+        }).collect();
 
         // Get per-queue access
-        let queue_graph = match queue {
-            Queue::Compute => &mut device.compute_graph,
-            Queue::Graphics => &mut device.graphics_graph
-        };
-
-        queue_graph.add_submit(info)
+        match queue {
+            Queue::Compute => device.compute_graph.add_submit(wait, info.signal),
+            Queue::Graphics => device.graphics_graph.add_submit(wait, info.signal)
+        }
     }
 }

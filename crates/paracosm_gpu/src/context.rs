@@ -3,7 +3,7 @@ use crate::device::{Device, DeviceProperties, PhysicalDevice};
 #[cfg(debug_assertions)] use crate::validation::*;
 
 use anyhow::{bail, Context as _, Result};
-use bevy_ecs::system::Resource;
+use bevy_ecs::prelude::Resource;
 #[cfg(feature = "WSI")] use bevy_utils::synccell::SyncCell;
 
 use std::{
@@ -49,6 +49,8 @@ pub struct Context {
     #[cfg(debug_assertions)] _debug_utils: DebugUtilsInstance,
     #[cfg(debug_assertions)] _debug_utils_messenger: DebugUtilsMessenger
 }
+unsafe impl Send for Context {  }
+unsafe impl Sync for Context {  }
 
 impl Context {
     pub fn new(

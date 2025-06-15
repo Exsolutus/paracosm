@@ -3,14 +3,14 @@ pub mod image;
 
 use crate::device::LogicalDevice;
 
-use buffer::PersistentBuffer;
+use buffer::Buffer;
 use image::{
     ImageInfo,
     ImageView
 };
 
 use anyhow::{Context as _, Result};
-use bevy_ecs::system::Resource;
+use bevy_ecs::prelude::Resource;
 
 use std::{any::TypeId, collections::HashMap, mem::ManuallyDrop};
 
@@ -27,14 +27,13 @@ pub trait BufferLabel: ResourceLabel {  }
 pub trait ImageLabel: ResourceLabel {  }
 pub trait AccelStructLabel: ResourceLabel {  }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TransferMode {
     Auto,
     AutoUpload,
     AutoDownload,
     Stream,
-    // Manual,
-    // None
+    //Manual
 }
 
 
@@ -42,16 +41,13 @@ pub enum TransferMode {
 #[derive(Resource)]
 pub(crate) struct ResourceManager {
     device: *const LogicalDevice,
-    allocator: ManuallyDrop<vk_mem::Allocator>,
+    allocator: vk_mem::Allocator,
 
-    storage_buffers: Vec<(ash::vk::Buffer, vk_mem::Allocation)>,
-    staging_buffers: Vec<(ash::vk::Buffer, vk_mem::Allocation)>,
-
-    pub descriptor_pool: ash::vk::DescriptorPool,
+    descriptor_pool: ash::vk::DescriptorPool,
     pub descriptor_set_layout: ash::vk::DescriptorSetLayout,
     pub descriptor_set: ash::vk::DescriptorSet,
 
-    graph_buffers: HashMap<TypeId, PersistentBuffer>
+    buffers: HashMap<TypeId, Buffer>,
 }
 unsafe impl Send for ResourceManager {  }   // SAFETY: safe while graph execution is single threaded
 unsafe impl Sync for ResourceManager {  }
@@ -157,13 +153,11 @@ impl ResourceManager {
 
         Ok(Self {
             device,
-            allocator: ManuallyDrop::new(allocator),
-            storage_buffers: Default::default(),
-            staging_buffers: Default::default(),
+            allocator,
             descriptor_pool,
             descriptor_set_layout,
             descriptor_set,
-            graph_buffers: Default::default()
+            buffers: Default::default()
         })
     }
 }
@@ -178,12 +172,15 @@ impl Drop for ResourceManager {
             device.destroy_descriptor_pool(self.descriptor_pool, None);
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
 
-            // Cleanup resources
-            for (buffer, allocation) in self.storage_buffers.iter_mut() {
-                self.allocator.destroy_buffer(*buffer, allocation);
-            }
-            for (buffer, allocation) in self.staging_buffers.iter_mut() {
-                self.allocator.destroy_buffer(*buffer, allocation);
+            // Cleanup remaining resources
+            for (_, buffer) in self.buffers.iter_mut() {
+                match buffer {
+                    Buffer::Persistent { buffer, allocation, transfer_mode, type_id, length, debug_name } => {
+                        println!("Persistent buffer {}", debug_name);
+                        self.allocator.destroy_buffer(*buffer, allocation);
+                    },
+                    _ => ()
+                } 
             }
         }
     }

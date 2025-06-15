@@ -3,7 +3,7 @@ mod compute;
 use crate::device::LogicalDevice;
 
 use anyhow::{bail, Context, Result};
-use bevy_ecs::system::Resource;
+use bevy_ecs::prelude::Resource;
 
 use std::{
     any::{type_name, TypeId}, 
@@ -172,7 +172,7 @@ impl crate::context::Context {
         }
     }
 
-    pub fn set_pipeline(&mut self, label: impl PipelineLabel + 'static, info: PipelineInfo) -> Result<()> {
+    pub fn create_pipeline(&mut self, label: impl PipelineLabel + 'static, info: PipelineInfo) -> Result<()> {
         self.devices[self.configuring_device as usize].graph_world
             .resource_mut::<PipelineManager>()
             .set(label, info)

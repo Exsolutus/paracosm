@@ -1,9 +1,9 @@
 use crate::{
-    pipeline::PipelineManager, queue::{commands::Commands, Queue, QueueGraph}, resource::ResourceManager, validation::DebugUtilsDevice
+    context::Context, pipeline::PipelineManager, queue::{Queue, QueueGraph}, resource::ResourceManager, validation::DebugUtilsDevice
 };
 
 use anyhow::Result;
-use bevy_ecs::{system::Resource, world::World};
+use bevy_ecs::{prelude::Resource, world::World};
 
 use std::{
     mem::ManuallyDrop, 
@@ -122,7 +122,6 @@ pub(crate) struct Device {
     pub logical_device: Box<LogicalDevice>,
 
     // Frame graph 
-    pub dirty: bool,
     pub graphics_graph: ManuallyDrop<QueueGraph>,
     pub compute_graph: ManuallyDrop<QueueGraph>,
     pub graph_world: World,
@@ -318,7 +317,6 @@ impl Device {
             instance,
             physical_device,
             logical_device,
-            dirty: false,
             graphics_graph: ManuallyDrop::new(graphics_graph),
             compute_graph: ManuallyDrop::new(compute_graph),
             graph_world,
@@ -332,10 +330,8 @@ impl Device {
     pub fn execute(&mut self) -> Result<()> {
         // TODO: queue graph validations
 
-        self.compute_graph.run(&mut self.graph_world, self.dirty)?;
-        self.graphics_graph.run(&mut self.graph_world, self.dirty)?;
-
-        self.dirty = false;
+        self.compute_graph.run(&mut self.graph_world)?;
+        self.graphics_graph.run(&mut self.graph_world)?;
 
         Ok(())
     }
@@ -364,5 +360,12 @@ impl Drop for Device {
             //  Synchronized host access to instance guaranteed by borrow checker with '&mut self'
             self.logical_device.destroy_device(None);
         }
+    }
+}
+
+impl Context {
+    pub fn wait_idle(&self) {
+        let device = &self.devices[self.primary_device as usize];
+        unsafe { device.logical_device.device_wait_idle().unwrap() }
     }
 }

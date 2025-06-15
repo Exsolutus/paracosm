@@ -40,9 +40,7 @@ pub mod prelude {
     };
     pub use bevy_ecs::prelude::{
         IntoSystem as _,
-        IntoSystemConfigs as _,
         IntoSystemSet as _,
-        IntoSystemSetConfigs as _
     };
     pub use paracosm_gpu_macros::*;
 }

@@ -1,5 +1,5 @@
 use paracosm_gpu::{
-    pipeline::{PipelineInfo, ShaderSource}, prelude::*, resource::{buffer::BufferInfo, image::ImageInfo, TransferMode}
+    pipeline::{PipelineInfo, ShaderSource}, prelude::*, resource::{image::ImageInfo, TransferMode}
 };
 
 use bevy::prelude::*;
@@ -20,7 +20,7 @@ fn startup(
     world: &mut World
 ) {
     let mut primary_window = world.query::<(Entity, &Window, &bevy::window::RawHandleWrapper, &bevy::window::PrimaryWindow)>();
-    let window_handle = unsafe { primary_window.single(world).2.get_handle() }; 
+    let window_handle = unsafe { primary_window.single(world).unwrap().2.get_handle() }; 
 
     // Create GPU context
     let mut context = Context::new(
@@ -41,50 +41,36 @@ fn startup(
 
     // Work with primary device
     {
-        // Create host-side resources
-        let shader_module_a = context.load_shader_module(ShaderSource::Crate("tests/compute".into())).unwrap();
+        // Resources
+        #[derive(BufferLabel)] struct BufferA;
+        #[derive(BufferLabel)] struct BufferB;
 
-        let buffer_a = context.create_buffer(BufferInfo {
-            size: 1,
-            transfer_mode: TransferMode::Auto,
-            debug_name: "Buffer A"
-        }).unwrap();
-        let buffer_b = context.create_buffer(BufferInfo {
-            size: 1,
-            transfer_mode: TransferMode::Auto,
-            debug_name: "Buffer B"
-        }).unwrap();
-        let image_a = context.create_image(ImageInfo::default()).unwrap();
+        context.create_buffer::<BufferA, u32>(TransferMode::Auto, 10).unwrap();
+        context.create_transient_buffer(BufferB, 10).unwrap();
+        //context.destroy_buffer(BufferA).unwrap();
+
+        #[derive(ImageLabel)] struct ImageA;
+        #[derive(ImageLabel)] struct ImageB;
+
+        context.create_image(ImageInfo::default()).unwrap();
         
-        context.destroy_buffer(buffer_b);
 
         // TODO: subresource view creation
 
-        // Define labels
+
+        // Pipelines
         #[derive(PipelineLabel)] struct ComputeA;
         #[derive(PipelineLabel)] struct GraphicsA;
         #[derive(PipelineLabel)] struct RayTracingA;
 
-        #[derive(BufferLabel)] struct BufferA;
-        #[derive(BufferLabel)] struct BufferB;
-        #[derive(ImageLabel)] struct ImageA;
-        #[derive(ImageLabel)] struct ImageB;
+        let shader_module_a = context.load_shader_module(ShaderSource::Crate("tests/compute".into())).unwrap();
 
-        // Set pipelines
-        context.set_pipeline(ComputeA, PipelineInfo::Compute {
+        context.create_pipeline(ComputeA, PipelineInfo::Compute {
             shader_module: shader_module_a,
             entry_point: "main_cs",
         }).unwrap();
-        context.set_pipeline(GraphicsA, PipelineInfo::Graphics {  }).unwrap();
-        context.set_pipeline(RayTracingA, PipelineInfo::RayTracing {  }).unwrap();
-
-        // Set persistent resources
-        context.set_persistent_buffer(BufferA, &buffer_a).unwrap();
-        context.set_persistent_image(ImageA, &image_a).unwrap();
-
-        // Set transient resources
-        context.set_transient_buffer(BufferB, 4, "Buffer B").unwrap();
-        context.set_transient_image(ImageB, ImageInfo::default()).unwrap();
+        context.create_pipeline(GraphicsA, PipelineInfo::Graphics {  }).unwrap();
+        context.create_pipeline(RayTracingA, PipelineInfo::RayTracing {  }).unwrap();
 
         // Define nodes
         fn read(interface: ComputeInterface, read: Read<BufferA>) { /* ... */ }
