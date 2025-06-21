@@ -1,16 +1,13 @@
 [package]
-name = "hello_compute_shaders"
+name = "hello_compute_shared"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["dylib", "lib"]
 test = false
 doctest = false
 
 [dependencies]
-hello_compute_shared = { path = "../shared" }
-
 spirv-std = { git = "https://github.com/Rust-GPU/rust-gpu", package = "spirv-std" }
 
 [lints.rust]

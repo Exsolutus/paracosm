@@ -37,8 +37,12 @@ pub enum TransferMode {
 }
 
 
+struct ResourcePool<T> {
+    resources: HashMap<TypeId, T>,
+    next_descriptor: u32,
+    free_descriptors: Vec<u32>
+}
 
-#[derive(Resource)]
 pub(crate) struct ResourceManager {
     device: *const LogicalDevice,
     allocator: vk_mem::Allocator,
@@ -47,10 +51,8 @@ pub(crate) struct ResourceManager {
     pub descriptor_set_layout: ash::vk::DescriptorSetLayout,
     pub descriptor_set: ash::vk::DescriptorSet,
 
-    buffers: HashMap<TypeId, Buffer>,
+    buffers: ResourcePool<Buffer>,
 }
-unsafe impl Send for ResourceManager {  }   // SAFETY: safe while graph execution is single threaded
-unsafe impl Sync for ResourceManager {  }
 
 impl ResourceManager {
     pub fn new(
@@ -151,13 +153,20 @@ impl ResourceManager {
                 .context("DescriptorSet should be allocated.")?[0]
         };
 
+        // Create resource pools
+        let buffers = ResourcePool::<Buffer> {
+            resources: Default::default(),
+            next_descriptor: 0,
+            free_descriptors: vec![]
+        };
+
         Ok(Self {
             device,
             allocator,
             descriptor_pool,
             descriptor_set_layout,
             descriptor_set,
-            buffers: Default::default()
+            buffers
         })
     }
 }
@@ -173,9 +182,9 @@ impl Drop for ResourceManager {
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
 
             // Cleanup remaining resources
-            for (_, buffer) in self.buffers.iter_mut() {
+            for (_, buffer) in self.buffers.resources.iter_mut() {
                 match buffer {
-                    Buffer::Persistent { buffer, allocation, transfer_mode, type_id, length, debug_name } => {
+                    Buffer::Persistent { buffer, allocation, descriptor_index, transfer_mode, size, debug_name } => {
                         println!("Persistent buffer {}", debug_name);
                         self.allocator.destroy_buffer(*buffer, allocation);
                     },

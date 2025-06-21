@@ -9,19 +9,17 @@ use crate::{
     resource::ResourceLabel
 };
 
-use anyhow::Result;
-use bevy_ecs::prelude::Resource;
+use anyhow::{bail, Ok, Result};
 
 use std::cell::UnsafeCell;
 
 
-#[derive(Resource)]
+
 pub(crate) struct Commands {
     device: *const LogicalDevice,
     pub command_buffer: UnsafeCell<ash::vk::CommandBuffer>,
 }
-unsafe impl Send for Commands {  }   // HACK: safe while graph execution is single threaded?
-unsafe impl Sync for Commands {  }     
+  
 
 
 impl Commands {
@@ -51,6 +49,7 @@ pub(crate) trait CommandRecorder {
     fn device(&self) -> &ash::Device;
     fn command_buffer(&self) -> Result<ash::vk::CommandBuffer>;
     fn pipeline<L: PipelineLabel + 'static>(&self, label: L) -> Result<&Pipeline>;
+    fn pipeline_constants(&self) -> (ash::vk::PipelineLayout, u32);
     fn resource<L: ResourceLabel + 'static>(&self, label: L) -> Result<&ResourceIndex<L>>;
 }
 
@@ -65,10 +64,32 @@ pub trait CommonCommands: CommandRecorder {
         };
 
         unsafe {
-            let command_buffer = self.command_buffer()?;
             let device = self.device();
+            let command_buffer = self.command_buffer()?;
 
             device.cmd_bind_pipeline(command_buffer, bind_point, **pipeline);
+        }
+
+        Ok(())
+    }
+
+    fn set_push_constant<T>(&mut self, push_constant: T) -> Result<()> {
+        unsafe {
+            let device = self.device();
+            let command_buffer = self.command_buffer()?;
+
+            let (pipeline_layout, max_push_constant_size) = self.pipeline_constants();
+
+            if size_of::<T>() > max_push_constant_size as usize {
+                bail!("Push constant should be no larger than {} bytes.", max_push_constant_size)
+            }
+
+            let data = std::slice::from_raw_parts(
+                &push_constant as *const T as *const u8,
+                size_of::<T>()
+            );
+
+            device.cmd_push_constants(command_buffer, pipeline_layout, ash::vk::ShaderStageFlags::ALL, 0, data);
         }
 
         Ok(())

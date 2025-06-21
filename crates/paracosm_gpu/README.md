@@ -4,13 +4,13 @@ A frame graph based GPU-driven Vulkan abstraction library.
 
 ## 1.0.0 Release development checklist
 
-- [ ] Command recording
+- Command recording
   - [ ] Common commands
   - [ ] Compute commands
   - [ ] Graphics commands
   - [ ] Transfer commands
 
-- [ ] Resource management
+- Resource management
   - [ ] Buffers
     - [ ] Persistent
     - [ ] Transient
@@ -20,23 +20,25 @@ A frame graph based GPU-driven Vulkan abstraction library.
   - [ ] Acceleration Structures
   - [ ] Automatic host-device resource transfers
 
-- [ ] Shader integration
+- Shader integration
   - [ ] Type sharing between host and shader code
   - [ ] Typed push constants
 
-- [ ] Synchronization
+- Synchronization
   - [ ] Automatic memory barriers
   - [ ] Automatic image layout transitions
   - [ ] Explicit cross-queue sync
 
-- [ ] WSI and swapchain management
+- WSI and swapchain management
   - [ ] Acquire and present
   - [ ] Window resize and minimize
   - [ ] Multiwindow
 
-- [ ] Usage examples
+- Usage examples and samples
   - [ ] Hello Compute
   - [ ] Game of Life
+  - [ ] Boids
+  - [ ] Fluid Sim
 
 ## Frame Graph features analysis
 

@@ -5,25 +5,39 @@ use bevy_ecs::{
     system::{Res, ResMut, SystemParam}
 };
 
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ops::Deref};
 
 
 // Resource access parameters
 #[derive(SystemParam)]
-pub struct Read<L: ResourceLabel + 'static> {
-    //res: Res<'w, ResourceIndex<L>>,
-    _marker: PhantomData<L>
+pub struct Read<'w, L: ResourceLabel + 'static> {
+    res: Res<'w, ResourceIndex<L>>,
 }
 
+impl<'w, L: ResourceLabel + 'static> Deref for Read<'w, L> {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.res.descriptor_index
+    }
+}
+
+
 #[derive(SystemParam)]
-pub struct Write<L: ResourceLabel + 'static> {
-    //res: ResMut<'w, ResourceIndex<L>>,
-    _marker: PhantomData<L>
+pub struct Write<'w, L: ResourceLabel + 'static> {
+    res: ResMut<'w, ResourceIndex<L>>,
+}
+
+impl<'w, L: ResourceLabel + 'static> Deref for Write<'w, L> {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.res.descriptor_index
+    }
 }
 
 #[derive(Resource)]
-pub(crate) enum ResourceIndex<L: ResourceLabel> {
-    Buffer { index: u32, label: PhantomData<L> },
-    ImageView { index: u32, label: PhantomData<L> },
-    AccelerationStructure { index: u32, label: PhantomData<L> }
+pub(crate) struct ResourceIndex<L: ResourceLabel> {
+    pub descriptor_index: u32,
+    pub _marker: PhantomData<L>
 }

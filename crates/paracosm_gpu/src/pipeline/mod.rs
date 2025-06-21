@@ -43,15 +43,12 @@ impl std::ops::Deref for Pipeline {
     fn deref(&self) -> &Self::Target { &self.inner }
 }
 
-#[derive(Resource)]
 pub(crate) struct PipelineManager {
     device: *const LogicalDevice,
     pub pipeline_layout: ash::vk::PipelineLayout,
-    pipelines: HashMap<TypeId, Pipeline>,
-    max_push_constants_size: u32
+    pub max_push_constants_size: u32,
+    pipelines: HashMap<TypeId, Pipeline>
 }
-unsafe impl Send for PipelineManager {  }   // SAFETY: safe while graph execution is single threaded
-unsafe impl Sync for PipelineManager {  }
 
 impl PipelineManager {
     pub fn new(
@@ -73,8 +70,8 @@ impl PipelineManager {
         Ok(Self {
             device,
             pipeline_layout,
-            pipelines: HashMap::default(),
-            max_push_constants_size
+            max_push_constants_size,
+            pipelines: HashMap::default()
         })
     }
 
@@ -174,7 +171,7 @@ impl crate::context::Context {
 
     pub fn create_pipeline(&mut self, label: impl PipelineLabel + 'static, info: PipelineInfo) -> Result<()> {
         self.devices[self.configuring_device as usize].graph_world
-            .resource_mut::<PipelineManager>()
+            .non_send_resource_mut::<PipelineManager>()
             .set(label, info)
     }
 }

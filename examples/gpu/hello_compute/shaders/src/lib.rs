@@ -6,7 +6,10 @@
 use glam::UVec3;
 use spirv_std::{glam, spirv, RuntimeArray, TypedBuffer};
 
+use hello_compute_shared::PushConstant;
+
 // Adapted from the wgpu hello-compute example
+
 
 pub fn collatz(mut n: u32) -> Option<u32> {
     let mut i = 0;
@@ -36,8 +39,10 @@ pub fn main_cs(
     id: UVec3,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] 
     storage_buffers: &mut RuntimeArray<TypedBuffer<[u32]>>,
+    #[spirv(push_constant)]
+    push_constant: &PushConstant
 ) {
-    let prime_indices = unsafe { storage_buffers.index_mut(0) };
+    let prime_indices = unsafe { storage_buffers.index_mut(push_constant.descriptor_index as usize) };
 
     let index = id.x as usize;
     prime_indices[index] = collatz(prime_indices[index]).unwrap_or(u32::MAX);

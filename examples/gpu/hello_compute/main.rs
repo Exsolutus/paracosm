@@ -4,11 +4,15 @@ use paracosm_gpu::{
 
 use bevy::prelude::*;
 
+use hello_compute_shared::PushConstant;
+
+
 const APPNAME: &str = "Paracosm GPU Hello Compute";
 const APPVER: (u32, u32, u32, u32) = (0, 0, 1, 0);
 
 const NUMBERS: [u32; 4] = [1, 2, 3, 4];
 const OVERFLOW: u32 = 0xffffffff;
+
 
 fn main() {
     App::new()
@@ -51,11 +55,13 @@ fn execute_gpu(
     // Create numbers buffer
     #[derive(BufferLabel)] struct NumbersBuffer;
 
-    context.create_buffer::<NumbersBuffer, u32>(
+    context.create_buffer(
+        NumbersBuffer,
         TransferMode::Stream,
-        numbers.len()
+        size_of_val(numbers)
     ).unwrap();
-    for (index, element) in context.get_buffer_memory_mut::<NumbersBuffer, u32>().unwrap().iter_mut().enumerate() {
+    let memory = context.get_buffer_memory_mut::<[u32; 4]>(NumbersBuffer).unwrap();
+    for (index, element) in memory.iter_mut().enumerate() {
         *element = numbers[index];
     }
 
@@ -73,7 +79,8 @@ fn execute_gpu(
     context.add_nodes(Queue::Compute,
         |mut interface: ComputeInterface, numbers_buffer: Write<NumbersBuffer>| {
             interface.bind_pipeline(HelloCompute).unwrap();
-            interface.disbatch(NUMBERS.len() as u32, 1, 1).unwrap();
+            interface.set_push_constant(PushConstant { descriptor_index: *numbers_buffer }).unwrap();
+            interface.dispatch(NUMBERS.len() as u32, 1, 1).unwrap();
         }
     ).unwrap();
 
@@ -89,7 +96,7 @@ fn execute_gpu(
     // Wait for primary device to finish execution
     context.wait_idle();
 
-    let result = context.get_buffer_memory::<NumbersBuffer, u32>().unwrap().to_vec();
+    let result = context.get_buffer_memory::<[u32; 4]>(NumbersBuffer).unwrap().to_vec();
 
     context.destroy_buffer(NumbersBuffer).unwrap();
 

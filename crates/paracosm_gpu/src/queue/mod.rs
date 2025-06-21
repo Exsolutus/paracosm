@@ -7,7 +7,7 @@ use crate::device::LogicalDevice;
 use anyhow::{bail, Result};
 use bevy_ecs::{
     schedule::{ExecutorKind, IntoScheduleConfigs, Schedule, ScheduleLabel, SystemSet}, 
-    system::{ResMut, ScheduleSystem}, 
+    system::{NonSend, ScheduleSystem}, 
     world::World
 };
 
@@ -164,7 +164,7 @@ impl QueueGraph {
         }
 
         // Add command buffer swap system after last submit set and before current submit set
-        let mut swap_command_buffer = (move |commands: ResMut<Commands>| {
+        let mut swap_command_buffer = (move |commands: NonSend<Commands>| {
             unsafe { *commands.command_buffer.get() = command_buffer; }
         }).into_configs();
         swap_command_buffer = match previous_submit_set {
@@ -190,7 +190,7 @@ impl QueueGraph {
                 self.init_command_buffer(*command_buffer)?;
             }
 
-            world.insert_resource(Commands::new(device, self.submit_sets[0].command_buffer));
+            world.insert_non_send_resource(Commands::new(device, self.submit_sets[0].command_buffer));
     
             // Run schedule to record commands
             self.schedule.run(world);

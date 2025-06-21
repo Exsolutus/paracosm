@@ -309,8 +309,8 @@ impl Device {
         )?;
 
         let mut graph_world = World::new();
-        graph_world.insert_resource(resource_manager);
-        graph_world.insert_resource(pipeline_manager);
+        graph_world.insert_non_send_resource(resource_manager);
+        graph_world.insert_non_send_resource(pipeline_manager);
 
 
         Ok(Self {

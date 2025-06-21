@@ -45,7 +45,7 @@ fn startup(
         #[derive(BufferLabel)] struct BufferA;
         #[derive(BufferLabel)] struct BufferB;
 
-        context.create_buffer::<BufferA, u32>(TransferMode::Auto, 10).unwrap();
+        context.create_buffer(BufferA, TransferMode::Auto, 10).unwrap();
         context.create_transient_buffer(BufferB, 10).unwrap();
         //context.destroy_buffer(BufferA).unwrap();
 

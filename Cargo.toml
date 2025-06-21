@@ -36,6 +36,7 @@ paracosm_gpu = { path = "crates/paracosm_gpu" }
 [dev-dependencies]
 bevy = { version = "0.16.1", default-features = false, features = ["bevy_winit"] }
 
+hello_compute_shared = { path = "examples/gpu/hello_compute/shared" }
 
 [[example]]
 name = "basic_usage"
@@ -44,6 +45,7 @@ path = "examples/gpu/basic_usage.rs"
 [[example]]
 name = "hello_compute"
 path = "examples/gpu/hello_compute/main.rs"
+
 
 
 # Enable a small amount of optimization in the dev profile.
