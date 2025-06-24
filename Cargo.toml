@@ -1,8 +1,6 @@
 [workspace]
 members = [
     "crates/paracosm_gpu",
-        # Tests shader crates
-        "crates/paracosm_gpu/tests/compute/shaders",
     
     # Examples shader crates
     "examples/gpu/hello_compute/shaders"
@@ -12,39 +10,43 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "MIT OR Apache-2.0"
-
+description = "Paracosm Engine Project"
+authors = ["Exsolutus <exsolutus.dev@gmail.com>"]
+repository = "https://github.com/Exsolutus/paracosm"
 
 [package]
 name = "paracosm"
 version = "0.1.0"
-description = "Paracosm Engine Project"
 license.workspace = true
-authors = ["Exsolutus <exsolutus.dev@gmail.com>"]
-
+description.workspace = true
+authors.workspace = true
 edition.workspace = true
 exclude = ["crates/"]
 
 
 [features]
-default = ["paracosm_gpu/WSI"]
+default = ["WSI"]
+WSI = ["paracosm_gpu/WSI"]
 
 
 [dependencies]
 paracosm_gpu = { path = "crates/paracosm_gpu" }
-
 
 [dev-dependencies]
 bevy = { version = "0.16.1", default-features = false, features = ["bevy_winit"] }
 
 hello_compute_shared = { path = "examples/gpu/hello_compute/shared" }
 
+
 [[example]]
 name = "basic_usage"
 path = "examples/gpu/basic_usage.rs"
+required-features = ["WSI"]
 
 [[example]]
 name = "hello_compute"
 path = "examples/gpu/hello_compute/main.rs"
+required-features = ["WSI"]
 
 
 

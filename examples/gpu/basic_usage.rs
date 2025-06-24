@@ -129,8 +129,6 @@ fn startup(
 fn render(mut context: NonSendMut<Context>) {
     // TODO: work out how resource upload/download works
 
-    // Set pipeline push constants
-    //context.set_push_constant::<GraphicsA>(PushConstantInfo::default()).unwrap();
 
     // TODO: work out window swapchain acquire and present
 

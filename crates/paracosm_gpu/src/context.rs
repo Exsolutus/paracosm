@@ -162,6 +162,7 @@ impl Context {
         }
 
         // Configure primary Vulkan surface
+        #[cfg(feature = "WSI")]
         primary_surface.configure(&devices[primary_device as usize], surface_config)?;
 
 

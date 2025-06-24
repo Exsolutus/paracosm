@@ -2,10 +2,10 @@
 name = "paracosm_gpu"
 version = "0.1.0"
 publish = true
-authors = ["Exsolutus <exsolutus.dev@gmail.com>"]
-edition = "2021"
-license = "MIT OR Apache-2.0"
-repository = ""
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 
 [features]

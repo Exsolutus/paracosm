@@ -12,7 +12,7 @@ A frame graph based GPU-driven Vulkan abstraction library.
 
 - Resource management
   - [ ] Buffers
-    - [ ] Persistent
+    - [x] Persistent
     - [ ] Transient
   - [ ] Images
     - [ ] Persistent
@@ -21,8 +21,8 @@ A frame graph based GPU-driven Vulkan abstraction library.
   - [ ] Automatic host-device resource transfers
 
 - Shader integration
-  - [ ] Type sharing between host and shader code
-  - [ ] Typed push constants
+  - [x] Type sharing between host and shader code
+  - [x] Typed push constants
 
 - Synchronization
   - [ ] Automatic memory barriers
@@ -35,7 +35,7 @@ A frame graph based GPU-driven Vulkan abstraction library.
   - [ ] Multiwindow
 
 - Usage examples and samples
-  - [ ] Hello Compute
+  - [x] Hello Compute
   - [ ] Game of Life
   - [ ] Boids
   - [ ] Fluid Sim
