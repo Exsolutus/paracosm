@@ -1,5 +1,5 @@
 use crate::{
-    context::Context, pipeline::PipelineManager, queue::{Queue, QueueGraph}, resource::ResourceManager, validation::DebugUtilsDevice
+    context::Context, pipeline::PipelineManager, prelude::ImageLabel, queue::{Queue, QueueGraph}, resource::ResourceManager, validation::DebugUtilsDevice
 };
 
 use anyhow::Result;
@@ -30,7 +30,6 @@ pub struct DeviceProperties {
     properties: ash::vk::PhysicalDeviceProperties,
     pub queue: QueueProperties,
     pub acceleration_structure: ash::vk::PhysicalDeviceAccelerationStructurePropertiesKHR<'static>,
-    #[cfg(feature = "WSI")] pub supports_presentation: bool
 }
 
 impl std::ops::Deref for DeviceProperties {
@@ -92,8 +91,7 @@ impl PhysicalDevice {
             properties: DeviceProperties {
                 properties: device_properties2.properties,
                 queue: queue_properties,
-                acceleration_structure: acceleration_structure_properties,
-                #[cfg(feature = "WSI")] supports_presentation: false
+                acceleration_structure: acceleration_structure_properties
             }
         })
     }
@@ -309,9 +307,8 @@ impl Device {
         )?;
 
         let mut graph_world = World::new();
-        graph_world.insert_non_send_resource(resource_manager);
-        graph_world.insert_non_send_resource(pipeline_manager);
-
+        graph_world.insert_resource(resource_manager);
+        graph_world.insert_resource(pipeline_manager);
 
         Ok(Self {
             instance,
@@ -334,11 +331,6 @@ impl Device {
         self.graphics_graph.run(&mut self.graph_world)?;
 
         Ok(())
-    }
-    
-    pub fn present(&mut self) -> Result<()> {
-        // TODO: add present node to frame graph
-        todo!()
     }
 }
 

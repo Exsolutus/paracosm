@@ -15,7 +15,7 @@ A frame graph based GPU-driven Vulkan abstraction library.
     - [x] Persistent
     - [ ] Transient
   - [ ] Images
-    - [ ] Persistent
+    - [x] Persistent
     - [ ] Transient
   - [ ] Acceleration Structures
   - [ ] Automatic host-device resource transfers
@@ -30,13 +30,13 @@ A frame graph based GPU-driven Vulkan abstraction library.
   - [ ] Explicit cross-queue sync
 
 - WSI and swapchain management
-  - [ ] Acquire and present
+  - [x] Acquire and present
   - [ ] Window resize and minimize
   - [ ] Multiwindow
 
 - Usage examples and samples
   - [x] Hello Compute
-  - [ ] Game of Life
+  - [x] Game of Life
   - [ ] Boids
   - [ ] Fluid Sim
 

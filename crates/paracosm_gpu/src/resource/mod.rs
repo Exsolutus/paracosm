@@ -1,18 +1,17 @@
 pub mod buffer;
 pub mod image;
-
-use crate::device::LogicalDevice;
+#[cfg(feature = "WSI")] pub mod surface;
 
 use buffer::Buffer;
-use image::{
-    ImageInfo,
-    ImageView
-};
+use image::Image;
+
+use crate::device::LogicalDevice;
+#[cfg(feature = "WSI")] use crate::resource::surface::Surface;
 
 use anyhow::{Context as _, Result};
-use bevy_ecs::prelude::Resource;
+use bevy_ecs::resource::Resource;
 
-use std::{any::TypeId, collections::HashMap, mem::ManuallyDrop};
+use std::{any::TypeId, collections::{hash_map::{Values, ValuesMut}, HashMap}};
 
 
 pub const BUFFER_BINDING: u32 = 0;
@@ -23,26 +22,49 @@ pub const ACCELERATION_STRUCTURE_BINDING: u32 = 4;
 
 pub trait ResourceLabel: Send + Sync { }
 
-pub trait BufferLabel: ResourceLabel {  }
-pub trait ImageLabel: ResourceLabel {  }
-pub trait AccelStructLabel: ResourceLabel {  }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub enum TransferMode {
-    Auto,
+    #[default] Auto,
     AutoUpload,
     AutoDownload,
     Stream,
     //Manual
 }
 
-
-struct ResourcePool<T> {
+pub(crate) struct ResourcePool<T> {
     resources: HashMap<TypeId, T>,
     next_descriptor: u32,
     free_descriptors: Vec<u32>
 }
 
+impl<T> Default for ResourcePool<T> {
+    fn default() -> Self {
+        ResourcePool { 
+            resources: Default::default(), 
+            next_descriptor: 0, 
+            free_descriptors: vec![]
+        }
+    }
+}
+
+impl<T> ResourcePool<T> {
+    pub fn get(&self, key: TypeId) -> Option<&T> {
+        self.resources.get(&key)
+    }
+
+    pub fn iter(&self) -> Values<TypeId, T> {
+        self.resources.values()
+    }
+
+    pub fn iter_mut(&mut self) -> ValuesMut<TypeId, T> {
+        self.resources.values_mut()
+    }
+}
+
+
+#[derive(Resource)]
 pub(crate) struct ResourceManager {
     device: *const LogicalDevice,
     allocator: vk_mem::Allocator,
@@ -51,8 +73,13 @@ pub(crate) struct ResourceManager {
     pub descriptor_set_layout: ash::vk::DescriptorSetLayout,
     pub descriptor_set: ash::vk::DescriptorSet,
 
-    buffers: ResourcePool<Buffer>,
+    pub buffers: ResourcePool<Buffer>,
+    pub images: ResourcePool<Image>,
+    #[cfg(feature = "WSI")] pub surfaces: ResourcePool<Surface>
 }
+// SAFETY: Valid so long as mutable access to ResourceManager is only exposed through the Context
+unsafe impl Send for ResourceManager {  }
+unsafe impl Sync for ResourceManager {  }   
 
 impl ResourceManager {
     pub fn new(
@@ -153,20 +180,15 @@ impl ResourceManager {
                 .context("DescriptorSet should be allocated.")?[0]
         };
 
-        // Create resource pools
-        let buffers = ResourcePool::<Buffer> {
-            resources: Default::default(),
-            next_descriptor: 0,
-            free_descriptors: vec![]
-        };
-
         Ok(Self {
             device,
             allocator,
             descriptor_pool,
             descriptor_set_layout,
             descriptor_set,
-            buffers
+            buffers: Default::default(),
+            images: Default::default(),
+            #[cfg(feature = "WSI")] surfaces: Default::default()
         })
     }
 }
@@ -192,17 +214,5 @@ impl Drop for ResourceManager {
                 } 
             }
         }
-    }
-}
-
-
-
-impl crate::context::Context {
-    pub fn set_persistent_image(&mut self, label: impl ImageLabel, image: &ImageView) -> Result<()> {
-        todo!()
-    }
-
-    pub fn set_transient_image(&mut self, label: impl ImageLabel, image: ImageInfo) -> Result<()> {
-        todo!()
     }
 }

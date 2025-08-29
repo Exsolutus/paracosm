@@ -2,8 +2,6 @@ use paracosm_gpu::{
     pipeline::{PipelineInfo, ShaderSource}, prelude::*, resource::TransferMode
 };
 
-use bevy::prelude::*;
-
 use hello_compute_shared::PushConstant;
 
 
@@ -13,43 +11,35 @@ const APPVER: (u32, u32, u32, u32) = (0, 0, 1, 0);
 const NUMBERS: [u32; 4] = [1, 2, 3, 4];
 const OVERFLOW: u32 = 0xffffffff;
 
-
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
-        .add_systems(PostStartup, run)
-        .run();
+    #[cfg(not(feature = "WSI"))]
+    {
+        println!("Hello Compute!");
+
+        let steps = execute_gpu(&NUMBERS);
+
+        // Output results
+        let disp_steps: Vec<String> = steps.iter()
+            .map(|&n| match n {
+                OVERFLOW => "OVERFLOW".to_string(),
+                _ => n.to_string(),
+            })
+            .collect();
+        println!("Steps: [{}]", disp_steps.join(", "));
+    }
 }
 
-fn run(world: &mut World) {
-    let steps = execute_gpu(world, &NUMBERS);
-
-    // Output results
-    let disp_steps: Vec<String> = steps.iter()
-        .map(|&n| match n {
-            OVERFLOW => "OVERFLOW".to_string(),
-            _ => n.to_string(),
-        })
-        .collect();
-    println!("Steps: [{}]", disp_steps.join(", "));
-}
-
+#[cfg(not(feature = "WSI"))]
 fn execute_gpu(
-    world: &mut World,
     numbers: &[u32]
 ) -> Vec<u32> {
-    let mut primary_window = world.query::<(Entity, &Window, &bevy::window::RawHandleWrapper, &bevy::window::PrimaryWindow)>();
-    let window_handle = unsafe { primary_window.single(world).unwrap().2.get_handle() }; 
-
     // Create GPU context
     let mut context = Context::new(
         ContextInfo {
             application_name: APPNAME.into(),
             application_version: APPVER,
             ..Default::default()
-        }, 
-        &window_handle,
-        SurfaceConfig::default()
+        }
     ).unwrap();
 
     // Create numbers buffer
@@ -80,13 +70,13 @@ fn execute_gpu(
         |mut interface: ComputeInterface, numbers_buffer: Write<NumbersBuffer>| {
             interface.bind_pipeline(HelloCompute).unwrap();
             interface.set_push_constant(PushConstant { descriptor_index: *numbers_buffer }).unwrap();
-            interface.dispatch(NUMBERS.len() as u32, 1, 1).unwrap();
+            interface.dispatch(NUMBERS.len() as u32, 1, 1);
         }
     ).unwrap();
 
     context.add_submit(
         Queue::Compute,
-        SubmitInfo::default()
+        None
     ).unwrap();
 
 
@@ -101,4 +91,27 @@ fn execute_gpu(
     context.destroy_buffer(NumbersBuffer).unwrap();
 
     result
+}
+
+#[cfg(all(test, not(feature = "WSI")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_1() {
+        let input = vec![1, 2, 3, 4];
+        assert_eq!(execute_gpu(&input), vec![0, 1, 7, 2]);
+    }
+
+    #[test]
+    fn test_compute_2() {
+        let input = vec![5, 23, 10, 9];
+        assert_eq!(execute_gpu(&input), vec![5, 15, 6, 19]);
+    }
+
+    #[test]
+    fn test_compute_overflow() {
+        let input = vec![77031, 837799, 8400511, 63728127];
+        assert_eq!(execute_gpu(&input), vec![350, 524, OVERFLOW, OVERFLOW]);
+    }
 }

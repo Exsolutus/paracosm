@@ -3,7 +3,8 @@ members = [
     "crates/paracosm_gpu",
     
     # Examples shader crates
-    "examples/gpu/hello_compute/shaders"
+    "examples/gpu/game_of_life/shaders",
+    "examples/gpu/hello_compute/shaders",
 ]
 resolver = "2"
 
@@ -33,10 +34,17 @@ WSI = ["paracosm_gpu/WSI"]
 paracosm_gpu = { path = "crates/paracosm_gpu" }
 
 [dev-dependencies]
-bevy = { version = "0.16.1", default-features = false, features = ["bevy_winit"] }
+bevy = { version = "0.16.1", default-features = false, features = [
+    "bevy_winit",
+] }
 
 hello_compute_shared = { path = "examples/gpu/hello_compute/shared" }
+game_of_life_shared = { path = "examples/gpu/game_of_life/shared" }
 
+
+[[example]]
+name = "hello_compute"
+path = "examples/gpu/hello_compute/main.rs"
 
 [[example]]
 name = "basic_usage"
@@ -44,8 +52,8 @@ path = "examples/gpu/basic_usage.rs"
 required-features = ["WSI"]
 
 [[example]]
-name = "hello_compute"
-path = "examples/gpu/hello_compute/main.rs"
+name = "game_of_life"
+path = "examples/gpu/game_of_life/main.rs"
 required-features = ["WSI"]
 
 

@@ -1,10 +1,9 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
-// HACK(eddyb) can't easily see warnings otherwise from `spirv-builder` builds.
 #![deny(warnings)]
 
 
-use glam::UVec3;
 use spirv_std::{glam, spirv, RuntimeArray, TypedBuffer};
+use glam::UVec3;
 
 use hello_compute_shared::PushConstant;
 
@@ -37,10 +36,10 @@ pub fn collatz(mut n: u32) -> Option<u32> {
 pub fn main_cs(
     #[spirv(global_invocation_id)]
     id: UVec3,
+    #[spirv(push_constant)]
+    push_constant: &PushConstant,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] 
     storage_buffers: &mut RuntimeArray<TypedBuffer<[u32]>>,
-    #[spirv(push_constant)]
-    push_constant: &PushConstant
 ) {
     let prime_indices = unsafe { storage_buffers.index_mut(push_constant.descriptor_index as usize) };
 

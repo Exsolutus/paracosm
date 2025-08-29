@@ -1,0 +1,14 @@
+[package]
+name = "game_of_life_shared"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+test = false
+doctest = false
+
+[dependencies]
+spirv-std = { git = "https://github.com/Rust-GPU/rust-gpu", package = "spirv-std" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_arch, values("spirv"))'] }

@@ -4,7 +4,6 @@ pub mod queue;
 pub mod node;
 pub mod pipeline;
 pub mod resource;
-#[cfg(feature = "WSI")]pub mod surface;
 #[cfg(debug_assertions)] mod validation;
 
 
@@ -15,7 +14,6 @@ pub mod prelude {
     };
     pub use crate::queue::{
         Queue,
-        SubmitInfo,
         commands::{
             CommonCommands as _,
             compute::ComputeCommands as _,
@@ -29,12 +27,13 @@ pub mod prelude {
     };
     pub use crate::pipeline::PipelineLabel;
     pub use crate::resource::{
-        BufferLabel,
-        ImageLabel,
-        AccelStructLabel
+        buffer::BufferLabel,
+        image::ImageLabel,
     };
     #[cfg(feature = "WSI")]
-    pub use crate::surface::{
+    pub use crate::resource::surface::{
+        SurfaceLabel,
+        PrimarySurface,
         HasSurfaceHandles,
         SurfaceConfig
     };

@@ -1,10 +1,8 @@
-use crate::device::{Device, DeviceProperties, PhysicalDevice};
-#[cfg(feature = "WSI")] use crate::surface::{HasSurfaceHandles, Surface, SurfaceConfig};
+use crate::{device::{Device, DeviceProperties, PhysicalDevice}};
 #[cfg(debug_assertions)] use crate::validation::*;
 
 use anyhow::{bail, Context as _, Result};
 use bevy_ecs::prelude::Resource;
-#[cfg(feature = "WSI")] use bevy_utils::synccell::SyncCell;
 
 use std::{
     collections::VecDeque, default::Default, ffi::{c_char, CStr, CString}, mem::ManuallyDrop
@@ -31,20 +29,17 @@ impl Default for ContextInfo {
     }
 }
 
-// TODO: Builder pattern for Context initialization
+
 #[derive(Resource)]
 pub struct Context {
     info: ContextInfo,
 
-    entry: ash::Entry,
-    instance: ash::Instance,
+    pub(crate) entry: ash::Entry,
+    pub(crate) instance: ash::Instance,
 
     pub(crate) primary_device: u32,
     pub(crate) configuring_device: u32,
     pub(crate) devices: ManuallyDrop<Box<[Device]>>,
-
-    #[cfg(feature = "WSI")] primary_surface: u32,
-    #[cfg(feature = "WSI")] surfaces: ManuallyDrop<SyncCell<Vec<Surface>>>,
 
     #[cfg(debug_assertions)] _debug_utils: DebugUtilsInstance,
     #[cfg(debug_assertions)] _debug_utils_messenger: DebugUtilsMessenger
@@ -55,8 +50,7 @@ unsafe impl Sync for Context {  }
 impl Context {
     pub fn new(
         info: ContextInfo, 
-        #[cfg(feature = "WSI")] primary_window: &dyn HasSurfaceHandles,
-        #[cfg(feature = "WSI")] surface_config: SurfaceConfig
+        #[cfg(feature = "WSI")] display: impl raw_window_handle::HasDisplayHandle
     ) -> Result<Self> {
         let entry = ash::Entry::linked();
 
@@ -73,9 +67,7 @@ impl Context {
             #[cfg(debug_assertions)] ash::ext::debug_utils::NAME.as_ptr(),
         ]);
         #[cfg(feature = "WSI")]
-        if let Ok(display_handle) = primary_window.display_handle() {
-            extension_names.append(&mut ash_window::enumerate_required_extensions(display_handle.as_raw())?.to_vec());
-        }
+        extension_names.append(&mut ash_window::enumerate_required_extensions(display.display_handle()?.as_raw())?.to_vec());
 
         // Create Vulkan instance
         let application_name = CString::new(info.application_name.as_ref())?;
@@ -104,27 +96,10 @@ impl Context {
             entry.create_instance(&instance_create_info, None)?
         };
 
-        // Create primary Vulkan surface
-        #[cfg(feature = "WSI")]
-        let mut primary_surface = Surface::new(&entry, &instance, primary_window)?;
-
         // Create Vulkan devices
         let mut physical_devices = unsafe { instance.enumerate_physical_devices()?
             .iter()
-            .map(|&physical_device| {
-                let mut physical_device = PhysicalDevice::new(&instance, physical_device).unwrap();
-
-                #[cfg(feature = "WSI")]
-                {
-                    physical_device.properties.supports_presentation = primary_surface.get_physical_device_surface_support(
-                        *physical_device, 
-                        physical_device.properties.queue.graphics_family, 
-                        primary_surface.surface
-                    ).unwrap();
-                }
-
-                physical_device
-            })
+            .map(|&physical_device| { PhysicalDevice::new(&instance, physical_device).unwrap() })
             .collect::<VecDeque<_>>()
         };
 
@@ -136,12 +111,7 @@ impl Context {
         let primary_device = physical_devices.iter()
             .enumerate()
             .max_by_key(|(_, physical_device)| {
-                #[cfg(feature = "WSI")]
-                let check = physical_device.properties.supports_presentation && physical_device.properties.api_version >= ash::vk::API_VERSION_1_3;
-                #[cfg(not(feature = "WSI"))]
-                let check = physical_device.properties.api_version >= ash::vk::API_VERSION_1_3;
-
-                match check {
+                match physical_device.properties.api_version >= ash::vk::API_VERSION_1_3 {
                     true => match physical_device.properties.device_type {
                         ash::vk::PhysicalDeviceType::DISCRETE_GPU => 1000,
                         ash::vk::PhysicalDeviceType::INTEGRATED_GPU => 100,
@@ -160,11 +130,6 @@ impl Context {
         for _ in 0..physical_devices.len() {
             devices.push(Device::new(instance.clone(), physical_devices.pop_front().unwrap())?);
         }
-
-        // Configure primary Vulkan surface
-        #[cfg(feature = "WSI")]
-        primary_surface.configure(&devices[primary_device as usize], surface_config)?;
-
 
         // Create Vulkan debug messenger
         #[cfg(debug_assertions)]
@@ -198,8 +163,6 @@ impl Context {
             primary_device,
             configuring_device: primary_device,
             devices: ManuallyDrop::new(devices.into_boxed_slice()),
-            #[cfg(feature = "WSI")] primary_surface: 0,
-            #[cfg(feature = "WSI")] surfaces: ManuallyDrop::new(SyncCell::new(vec![primary_surface])),
             #[cfg(debug_assertions)] _debug_utils,
             #[cfg(debug_assertions)] _debug_utils_messenger
         })
@@ -216,7 +179,10 @@ impl Context {
 
     pub fn set_primary_device(&mut self, index: u32) -> Result<()> {
         match index < self.devices.len() as u32 {
-            true => self.primary_device = index,
+            true => {
+                self.primary_device = index;
+                //self.surfaces[self.primary_surface as usize].configure(&self.devices[index as usize], config)
+            },
             false => bail!("'index' should be a valid device index.")
         };
 
@@ -234,25 +200,13 @@ impl Context {
     //     todo!()
     // }
 
-    /// Executes the frame graph of the primary device.
+    /// Executes the frame graph of each device.
     pub fn execute(&mut self) -> Result<()> {
-        let device = unsafe {
-            self.devices.get_mut(self.primary_device as usize).unwrap_unchecked()
-        };
-
-        device.execute()?;
+        for device in self.devices.iter_mut() {
+            device.execute()?
+        }
 
         Ok(())
-    }
-    
-    pub fn present(&mut self) -> Result<()> {
-        let device = unsafe {
-            self.devices.get_mut(self.primary_device as usize).unwrap_unchecked()
-        };
-
-        device.present()?;
-
-        todo!()
     }
 }
 
@@ -270,10 +224,6 @@ impl Drop for Context {
         }
 
         unsafe {
-            // Drop all surfaces
-            #[cfg(feature = "WSI")]
-            ManuallyDrop::drop(&mut self.surfaces);
-
             // Drop all devices
             ManuallyDrop::drop(&mut self.devices);
 

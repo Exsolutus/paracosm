@@ -3,7 +3,7 @@ mod compute;
 use crate::device::LogicalDevice;
 
 use anyhow::{bail, Context, Result};
-use bevy_ecs::prelude::Resource;
+use bevy_ecs::resource::Resource;
 
 use std::{
     any::{type_name, TypeId}, 
@@ -19,6 +19,7 @@ pub enum ShaderSource {
     SPV(PathBuf),
 }
 
+#[derive(Clone)]
 pub struct ShaderModule {
     pub(crate) spv_path: Box<Path>,
     pub(crate) crate_path: Option<Box<Path>>
@@ -43,12 +44,16 @@ impl std::ops::Deref for Pipeline {
     fn deref(&self) -> &Self::Target { &self.inner }
 }
 
+#[derive(Resource)]
 pub(crate) struct PipelineManager {
     device: *const LogicalDevice,
     pub pipeline_layout: ash::vk::PipelineLayout,
     pub max_push_constants_size: u32,
     pipelines: HashMap<TypeId, Pipeline>
 }
+// SAFETY: Valid so long as mutable access to PipelineManager is only exposed through the Context
+unsafe impl Send for PipelineManager {  }
+unsafe impl Sync for PipelineManager {  }   
 
 impl PipelineManager {
     pub fn new(
@@ -171,7 +176,7 @@ impl crate::context::Context {
 
     pub fn create_pipeline(&mut self, label: impl PipelineLabel + 'static, info: PipelineInfo) -> Result<()> {
         self.devices[self.configuring_device as usize].graph_world
-            .non_send_resource_mut::<PipelineManager>()
+            .resource_mut::<PipelineManager>()
             .set(label, info)
     }
 }

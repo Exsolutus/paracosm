@@ -2,11 +2,23 @@ use paracosm_gpu::{
     pipeline::{PipelineInfo, ShaderSource}, prelude::*, resource::{image::ImageInfo, TransferMode}
 };
 
-use bevy::prelude::*;
+use bevy::{prelude::*, winit::DisplayHandleWrapper};
 
 
 const APPNAME: &str = "Paracosm GPU Basic Usage";
 const APPVER: (u32, u32, u32, u32) = (0, 0, 1, 0);
+
+
+#[derive(BufferLabel)] struct BufferA;
+#[derive(BufferLabel)] struct BufferB;
+
+#[derive(ImageLabel)] struct ImageA;
+#[derive(ImageLabel)] struct ImageB;
+
+#[derive(PipelineLabel)] struct ComputeA;
+#[derive(PipelineLabel)] struct GraphicsA;
+#[derive(PipelineLabel)] struct RayTracingA;
+
 
 fn main() {
     App::new()
@@ -17,20 +29,17 @@ fn main() {
 }
 
 fn startup(
-    world: &mut World
+    world: &mut World,
 ) {
-    let mut primary_window = world.query::<(Entity, &Window, &bevy::window::RawHandleWrapper, &bevy::window::PrimaryWindow)>();
-    let window_handle = unsafe { primary_window.single(world).unwrap().2.get_handle() }; 
-
     // Create GPU context
+    let display = world.resource::<DisplayHandleWrapper>();
     let mut context = Context::new(
         ContextInfo {
             application_name: APPNAME.into(),
             application_version: APPVER,
             ..Default::default()
-        }, 
-        &window_handle,
-        SurfaceConfig::default()
+        },
+        display.0.clone()
     ).unwrap();
 
     // Check properties of active devices
@@ -39,31 +48,25 @@ fn startup(
     // Optionally, manually set the primary device (index order as returned by [`devices()`])
     // context.set_primary_device(0).unwrap();
 
-    // Work with primary device
-    {
-        // Resources
-        #[derive(BufferLabel)] struct BufferA;
-        #[derive(BufferLabel)] struct BufferB;
 
+    // Work with primary device
+    {        
+        // Manage active window surfaces
+        let mut primary_window = world.query::<(Entity, &Window, &bevy::window::RawHandleWrapper, &bevy::window::PrimaryWindow)>();
+        let primary_window_handle = unsafe { primary_window.single(world).unwrap().2.get_handle() }; 
+
+        context.create_surface(PrimarySurface, primary_window_handle, SurfaceConfig::default()).unwrap();
+
+        // Resources
         context.create_buffer(BufferA, TransferMode::Auto, 10).unwrap();
         context.create_transient_buffer(BufferB, 10).unwrap();
         //context.destroy_buffer(BufferA).unwrap();
 
-        #[derive(ImageLabel)] struct ImageA;
-        #[derive(ImageLabel)] struct ImageB;
-
-        context.create_image(ImageInfo::default()).unwrap();
-        
-
-        // TODO: subresource view creation
-
+        context.create_image(ImageA, ImageInfo::default()).unwrap();
+        //context.destroy_image(ImageA).unwrap();
 
         // Pipelines
-        #[derive(PipelineLabel)] struct ComputeA;
-        #[derive(PipelineLabel)] struct GraphicsA;
-        #[derive(PipelineLabel)] struct RayTracingA;
-
-        let shader_module_a = context.load_shader_module(ShaderSource::Crate("tests/compute".into())).unwrap();
+        let shader_module_a = context.load_shader_module(ShaderSource::Crate("path to shader crate here".into())).unwrap();
 
         context.create_pipeline(ComputeA, PipelineInfo::Compute {
             shader_module: shader_module_a,
@@ -85,8 +88,8 @@ fn startup(
                 read,
                 write.after(read_write),
                 // Inline node definition
-                (|interface: GraphicsInterface, read: Read<BufferB>, write: Write<ImageB>| {
-                    /* ... */
+                (|mut interface: GraphicsInterface, read: Read<ImageB>, write: Write<PrimarySurface>| {
+                    interface.blit_image_to_surface(read, write).unwrap();
                 }).after(write)
             )
         ).unwrap();
@@ -99,20 +102,16 @@ fn startup(
         ).unwrap();
 
         // Add queue submissions
-        context.add_submit(
+        let compute_timeline_value = context.add_submit(
             Queue::Compute, 
-            SubmitInfo {
-                wait: [].into(),
-                signal: [].into()
-            }
+            None
         ).unwrap();
-        context.add_submit(
+        let graphics_timeline_value = context.add_submit(
             Queue::Graphics, 
-            SubmitInfo {
-                wait: [(Queue::Compute, 1)].into(),
-                signal: [].into()
-            }
+            Some((Queue::Compute, compute_timeline_value))
         ).unwrap();
+
+        context.clear_queue(Queue::Graphics).unwrap();
     }
     
     // Work with another device
@@ -123,7 +122,7 @@ fn startup(
     //     // Same interface as above
     // }
 
-    world.insert_non_send_resource(context);
+    world.insert_resource(context);
 }
 
 fn render(mut context: NonSendMut<Context>) {
@@ -134,7 +133,4 @@ fn render(mut context: NonSendMut<Context>) {
 
     // Build and run primary device frame graph
     context.execute().unwrap();
-
-    // Present render targets to surfaces
-    context.present().unwrap();
 }

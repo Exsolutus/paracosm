@@ -18,7 +18,7 @@ impl<'w, L: ResourceLabel + 'static> Deref for Read<'w, L> {
     type Target = u32;
 
     fn deref(&self) -> &Self::Target {
-        &self.res.descriptor_index
+        &self.res.index
     }
 }
 
@@ -32,12 +32,12 @@ impl<'w, L: ResourceLabel + 'static> Deref for Write<'w, L> {
     type Target = u32;
 
     fn deref(&self) -> &Self::Target {
-        &self.res.descriptor_index
+        &self.res.index
     }
 }
 
 #[derive(Resource)]
 pub(crate) struct ResourceIndex<L: ResourceLabel> {
-    pub descriptor_index: u32,
+    pub index: u32,
     pub _marker: PhantomData<L>
 }

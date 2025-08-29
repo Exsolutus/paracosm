@@ -10,6 +10,8 @@ fn main() {
     let builder = SpirvBuilder::new(path, "spirv-unknown-vulkan1.2")
         .print_metadata(MetadataPrintout::Full)
         .capability(Capability::RuntimeDescriptorArray)
+        .capability(Capability::StorageImageReadWithoutFormat)
+        .capability(Capability::StorageImageWriteWithoutFormat)
         .extension("SPV_EXT_descriptor_indexing")
         .preserve_bindings(true);
 
