@@ -30,7 +30,6 @@ pub mod prelude {
         buffer::BufferLabel,
         image::ImageLabel,
     };
-    #[cfg(feature = "WSI")]
     pub use crate::resource::surface::{
         SurfaceLabel,
         PrimarySurface,

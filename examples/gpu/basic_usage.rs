@@ -39,7 +39,7 @@ fn startup(
             application_version: APPVER,
             ..Default::default()
         },
-        display.0.clone()
+        Some(&display.0)
     ).unwrap();
 
     // Check properties of active devices

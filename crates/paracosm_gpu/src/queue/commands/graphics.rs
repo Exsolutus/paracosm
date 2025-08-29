@@ -5,7 +5,6 @@ use crate::{
     node::resource::{Read, Write},
     queue::commands::CommandRecorder
 };
-#[cfg(feature = "WSI")] 
 use crate::resource::surface::SurfaceLabel;
 
 use anyhow::{Context, Result};
@@ -16,7 +15,6 @@ use std::any::TypeId;
 
 #[allow(private_bounds)]
 pub trait GraphicsCommands: CommandRecorder {
-    #[cfg(feature = "WSI")]
     fn blit_image_to_surface<I: ImageLabel + 'static, S: SurfaceLabel + 'static>(&mut self, _image: Read<I>, _surface: Write<S>) -> Result<()> {
         let resource_manager = self.resources();
 

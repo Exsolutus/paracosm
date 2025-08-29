@@ -12,7 +12,6 @@ const NUMBERS: [u32; 4] = [1, 2, 3, 4];
 const OVERFLOW: u32 = 0xffffffff;
 
 fn main() {
-    #[cfg(not(feature = "WSI"))]
     {
         println!("Hello Compute!");
 
@@ -29,7 +28,6 @@ fn main() {
     }
 }
 
-#[cfg(not(feature = "WSI"))]
 fn execute_gpu(
     numbers: &[u32]
 ) -> Vec<u32> {
@@ -39,7 +37,8 @@ fn execute_gpu(
             application_name: APPNAME.into(),
             application_version: APPVER,
             ..Default::default()
-        }
+        },
+        None
     ).unwrap();
 
     // Create numbers buffer
@@ -93,7 +92,7 @@ fn execute_gpu(
     result
 }
 
-#[cfg(all(test, not(feature = "WSI")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

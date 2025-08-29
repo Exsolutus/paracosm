@@ -1,12 +1,12 @@
 pub mod buffer;
 pub mod image;
-#[cfg(feature = "WSI")] pub mod surface;
+pub mod surface;
 
 use buffer::Buffer;
 use image::Image;
 
 use crate::device::LogicalDevice;
-#[cfg(feature = "WSI")] use crate::resource::surface::Surface;
+use crate::resource::surface::Surface;
 
 use anyhow::{Context as _, Result};
 use bevy_ecs::resource::Resource;
@@ -75,7 +75,7 @@ pub(crate) struct ResourceManager {
 
     pub buffers: ResourcePool<Buffer>,
     pub images: ResourcePool<Image>,
-    #[cfg(feature = "WSI")] pub surfaces: ResourcePool<Surface>
+    pub surfaces: ResourcePool<Surface>
 }
 // SAFETY: Valid so long as mutable access to ResourceManager is only exposed through the Context
 unsafe impl Send for ResourceManager {  }
@@ -188,7 +188,7 @@ impl ResourceManager {
             descriptor_set,
             buffers: Default::default(),
             images: Default::default(),
-            #[cfg(feature = "WSI")] surfaces: Default::default()
+            surfaces: Default::default()
         })
     }
 }

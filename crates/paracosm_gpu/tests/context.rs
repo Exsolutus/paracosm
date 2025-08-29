@@ -1,6 +1,5 @@
 use paracosm_gpu::context::*;
 
-#[cfg(not(feature = "WSI"))]
 #[test]
 fn simplest() {
     let context_info = ContextInfo {
@@ -8,7 +7,7 @@ fn simplest() {
         application_version: (0, 0, 0, 0),
         ..Default::default()
     };
-    let context = Context::new(context_info);
+    let context = Context::new(context_info, None);
 
     assert!(context.is_ok())
 }

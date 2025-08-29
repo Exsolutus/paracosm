@@ -185,9 +185,8 @@ impl QueueGraph {
             world.insert_resource(Commands::new(device, self.command_buffers[frame_index].clone().into()));
 
             // Acquire next surface images
-            #[cfg(feature = "WSI")] let mut acquire_semaphores = vec![]; 
-            #[cfg(feature = "WSI")] let mut submit_semaphores = vec![]; 
-            #[cfg(feature = "WSI")] 
+            let mut acquire_semaphores = vec![]; 
+            let mut submit_semaphores = vec![]; 
             if self.queue_label == Queue::Graphics {
                 let mut resource_manager = world.resource_mut::<ResourceManager>();
                 let mut image_barriers = vec![];
@@ -223,11 +222,9 @@ impl QueueGraph {
                     }).collect();
                 let mut signal_semaphore_infos: Vec<ash::vk::SemaphoreSubmitInfo<'_>> = vec![];
 
-                #[cfg(feature = "WSI")] 
                 if submit_index == 0 {
                     wait_semaphore_infos.append(&mut acquire_semaphores);
                 }
-                #[cfg(feature = "WSI")] 
                 if submit_index == submit_count - 1 {
                     signal_semaphore_infos.append(&mut submit_semaphores);
             
@@ -267,12 +264,9 @@ impl QueueGraph {
 
                 unsafe { device.queue_submit2(self.queue, std::slice::from_ref(&submit_info), ash::vk::Fence::null()).unwrap(); }
 
-                #[cfg(feature = "WSI")]
-                {
-                    let mut resource_manager = world.resource_mut::<ResourceManager>();
-                    for surface in resource_manager.surfaces.iter_mut() {
-                        surface.present(self.queue)?;
-                    }
+                let mut resource_manager = world.resource_mut::<ResourceManager>();
+                for surface in resource_manager.surfaces.iter_mut() {
+                    surface.present(self.queue)?;
                 }
             }
         }

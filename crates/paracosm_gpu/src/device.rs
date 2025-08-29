@@ -137,6 +137,7 @@ impl Device {
     pub fn new(
         instance: ash::Instance,
         physical_device: PhysicalDevice,
+        display_support: bool
     ) -> Result<Self> {
         let queue_properties = physical_device.properties.queue;
         
@@ -219,8 +220,7 @@ impl Device {
             .push_next(&mut physical_device_maintenance5_features)
             .features(physical_device_features);
 
-        let extension_names = [
-            #[cfg(feature = "WSI")] ash::khr::swapchain::NAME.as_ptr(),
+        let mut extension_names = vec![
             ash::ext::descriptor_indexing::NAME.as_ptr(),
             ash::ext::shader_image_atomic_int64::NAME.as_ptr(),
             ash::ext::robustness2::NAME.as_ptr(),
@@ -230,6 +230,9 @@ impl Device {
             ash::khr::ray_tracing_pipeline::NAME.as_ptr(),
             ash::khr::maintenance5::NAME.as_ptr()
         ];
+        if display_support {
+            extension_names.push(ash::khr::swapchain::NAME.as_ptr());
+        }
 
         // Gather queue info
         let compute_priorities = vec![0.0; queue_properties.compute_count as usize];

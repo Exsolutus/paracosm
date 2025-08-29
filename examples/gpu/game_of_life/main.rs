@@ -62,7 +62,7 @@ impl Plugin for GameOfLifeComputePlugin {
                 application_name: APPNAME.into(),
                 ..Default::default()
             }, 
-            display_handle.0.clone()
+            Some(&display_handle.0)
         ).unwrap();
         app.insert_resource(context);
     }

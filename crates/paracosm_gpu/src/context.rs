@@ -41,6 +41,8 @@ pub struct Context {
     pub(crate) configuring_device: u32,
     pub(crate) devices: ManuallyDrop<Box<[Device]>>,
 
+    pub(crate) display_support: bool,
+
     #[cfg(debug_assertions)] _debug_utils: DebugUtilsInstance,
     #[cfg(debug_assertions)] _debug_utils_messenger: DebugUtilsMessenger
 }
@@ -50,7 +52,7 @@ unsafe impl Sync for Context {  }
 impl Context {
     pub fn new(
         info: ContextInfo, 
-        #[cfg(feature = "WSI")] display: impl raw_window_handle::HasDisplayHandle
+        display: Option<&dyn raw_window_handle::HasDisplayHandle>
     ) -> Result<Self> {
         let entry = ash::Entry::linked();
 
@@ -66,8 +68,9 @@ impl Context {
         let mut extension_names = Vec::from([
             #[cfg(debug_assertions)] ash::ext::debug_utils::NAME.as_ptr(),
         ]);
-        #[cfg(feature = "WSI")]
-        extension_names.append(&mut ash_window::enumerate_required_extensions(display.display_handle()?.as_raw())?.to_vec());
+        if let Some(display) = display {
+            extension_names.append(&mut ash_window::enumerate_required_extensions(display.display_handle()?.as_raw())?.to_vec());
+        }
 
         // Create Vulkan instance
         let application_name = CString::new(info.application_name.as_ref())?;
@@ -128,7 +131,7 @@ impl Context {
 
         let mut devices = Vec::with_capacity(physical_devices.len());
         for _ in 0..physical_devices.len() {
-            devices.push(Device::new(instance.clone(), physical_devices.pop_front().unwrap())?);
+            devices.push(Device::new(instance.clone(), physical_devices.pop_front().unwrap(), display.is_some())?);
         }
 
         // Create Vulkan debug messenger
@@ -163,6 +166,7 @@ impl Context {
             primary_device,
             configuring_device: primary_device,
             devices: ManuallyDrop::new(devices.into_boxed_slice()),
+            display_support: display.is_some(),
             #[cfg(debug_assertions)] _debug_utils,
             #[cfg(debug_assertions)] _debug_utils_messenger
         })

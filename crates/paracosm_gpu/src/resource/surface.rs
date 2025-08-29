@@ -243,6 +243,10 @@ impl crate::context::Context {
         window: impl HasSurfaceHandles, 
         config: SurfaceConfig
     ) -> Result<()> {
+        if !self.display_support {
+            bail!("Context was not created with display support enabled.")
+        }
+        
         let device = &mut self.devices[self.primary_device as usize];
 
         // Create Surface for window
