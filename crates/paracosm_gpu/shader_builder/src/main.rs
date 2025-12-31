@@ -8,17 +8,20 @@ fn main() {
     assert!(path.is_dir(), "Path argument must be a valid directory.");
     
     let builder = SpirvBuilder::new(path, "spirv-unknown-vulkan1.2")
-        .print_metadata(MetadataPrintout::Full)
+        .print_metadata(MetadataPrintout::None)
         .capability(Capability::RuntimeDescriptorArray)
         .capability(Capability::StorageImageReadWithoutFormat)
         .capability(Capability::StorageImageWriteWithoutFormat)
+        .capability(Capability::MeshShadingEXT)
         .extension("SPV_EXT_descriptor_indexing")
+        .extension("SPV_EXT_mesh_shader")
         .preserve_bindings(true);
 
     let compile_result = match builder.build() {
         Ok(result) => result,
         Err(error) => panic!("{}", error)
     };
+    println!("{:?}", compile_result.entry_points);
 
     let module_path = compile_result.module.unwrap_single();
     println!("{}", module_path.as_os_str().to_str().unwrap());

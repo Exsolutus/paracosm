@@ -1,22 +1,30 @@
-use crate::{node::resource::ResourceIndex, resource::{SAMPLED_IMAGE_BINDING, STORAGE_IMAGE_BINDING}};
+use crate::resource::{ResourceHandle, SAMPLED_IMAGE_BINDING, STORAGE_IMAGE_BINDING, SyncLabel};
 
-use super::{ResourceLabel, ResourceManager, TransferMode};
+use super::{TransferMode};
 
-use anyhow::{bail, Ok, Result};
+use anyhow::{Context, Ok, Result, bail};
+use ash::vk::{ImageAspectFlags, ImageUsageFlags};
+use bevy_ecs::{component::Component, entity::Entity};
 use vk_mem::{Alloc, AllocationCreateFlags, AllocationCreateInfo, MemoryUsage};
-
-use std::{any::{type_name, type_name_of_val, Any}, marker::PhantomData};
 
 // Reexport
 pub use ash::vk::{
     Format,
-    SampleCountFlags
 };
 
 
-pub trait ImageLabel: ResourceLabel {  }
 
-#[derive(Default)]
+pub struct ImageHandle {
+    host_entity: Entity
+}
+
+impl ResourceHandle for ImageHandle {
+    fn host_entity(&self) -> Entity { self.host_entity }
+}
+
+pub trait ImageLabel: SyncLabel { }
+
+#[derive(Clone, Copy, Default)]
 pub struct ImageInfo {
     pub format: ash::vk::Format,
     /// Image extent with format \[width, height, depth\]
@@ -25,24 +33,65 @@ pub struct ImageInfo {
     pub array_layers: u32,
     pub samples: ash::vk::SampleCountFlags,
     pub shared: bool,
-    pub transfer_mode: TransferMode
+    pub transfer_mode: TransferMode,
+    pub shader_mutable: bool,
+    #[cfg(debug_assertions)] pub debug_name: &'static str
 }
 
-pub(crate) enum Image {
-    Persistent {
-        info: ImageInfo,
+#[derive(Clone, Copy)]
+pub struct ImageView {
+    pub descriptor_index: u32,
 
-        image: ash::vk::Image,
-        image_views: Box<[ash::vk::ImageView]>,
-        allocation: vk_mem::Allocation,
-        descriptor_index: u32,
+    pub(crate) inner: ash::vk::ImageView,
+}
 
-        #[cfg(debug_assertions)] debug_name: &'static str
-    },
-    Transient {
-        info: ImageInfo,
+#[derive(Component)]
+pub struct Image {
+    pub info: ImageInfo,
 
-        #[cfg(debug_assertions)] debug_name: &'static str
+    pub(crate) image: ash::vk::Image,
+    pub(crate) allocation: vk_mem::Allocation,
+    pub(crate) image_views: Box<[ImageView]>
+}
+
+impl Image {
+    pub fn view(&self, index: u32) -> ImageView {
+        self.image_views[index as usize]
+    }
+}
+
+pub(crate) mod image_helpers {
+    use ash::vk::{Format, ImageAspectFlags};
+
+    fn is_depth_format(format: Format) -> bool {
+        match format {
+            Format::D16_UNORM |
+            Format::D16_UNORM_S8_UINT |
+            Format::D24_UNORM_S8_UINT |
+            Format::D32_SFLOAT |
+            Format::D32_SFLOAT_S8_UINT |
+            Format::X8_D24_UNORM_PACK32 => true,
+            _ => false
+        }
+    }
+
+    fn is_stencil_format(format: Format) -> bool {
+        match format {
+            Format::S8_UINT |
+            Format::D16_UNORM_S8_UINT |
+            Format::D24_UNORM_S8_UINT |
+            Format::D32_SFLOAT_S8_UINT => true,
+            _ => false
+        }
+    }
+
+    pub fn aspect_from_format(format: Format) -> ImageAspectFlags {
+        match (is_depth_format(format), is_stencil_format(format)) {
+            (false, false) => ImageAspectFlags::COLOR,
+            (true, false) => ImageAspectFlags::DEPTH,
+            (false, true) => ImageAspectFlags::STENCIL,
+            (true, true) => ImageAspectFlags::DEPTH | ImageAspectFlags::STENCIL
+        }
     }
 }
 
@@ -56,15 +105,11 @@ pub(crate) struct Sampler {
 
 
 impl crate::context::Context {
-    pub fn create_image<L: ImageLabel + 'static>(
+    pub fn create_image(
         &mut self,
-        label: L,
         info: ImageInfo
-    ) -> Result<()> {
-        let device = &mut self.devices[self.configuring_device as usize];
-        let mut resource_manager = device.graph_world.resource_mut::<ResourceManager>();
-
-        let debug_name = type_name_of_val(&label);
+    ) -> Result<ImageHandle> {
+        let device = &mut self.active_device;
 
         // Create new image
         let (image_type, image_extent) = match info.extent {
@@ -74,17 +119,26 @@ impl crate::context::Context {
             [width, height, depth] => (ash::vk::ImageType::TYPE_3D, ash::vk::Extent3D { width, height, depth }),
         };
 
+        let mut image_usage = {
+            ash::vk::ImageUsageFlags::STORAGE | 
+            ash::vk::ImageUsageFlags::SAMPLED | 
+            ash::vk::ImageUsageFlags::TRANSFER_SRC | 
+            ash::vk::ImageUsageFlags::TRANSFER_DST
+        };
+        let aspect_mask = image_helpers::aspect_from_format(info.format);
+        if aspect_mask.contains(ImageAspectFlags::COLOR) {
+            image_usage |= ImageUsageFlags::COLOR_ATTACHMENT;
+        }
+        else if aspect_mask.contains(ImageAspectFlags::DEPTH) || aspect_mask.contains(ImageAspectFlags::STENCIL) {
+            image_usage |= ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT;
+        }
+
         let image_create_info = ash::vk::ImageCreateInfo::default()
             .flags(match image_type {
                 ash::vk::ImageType::TYPE_3D => ash::vk::ImageCreateFlags::CUBE_COMPATIBLE,
                 _ => ash::vk::ImageCreateFlags::empty()
             })
-            .usage(
-                ash::vk::ImageUsageFlags::STORAGE | 
-                ash::vk::ImageUsageFlags::SAMPLED | 
-                ash::vk::ImageUsageFlags::TRANSFER_SRC | 
-                ash::vk::ImageUsageFlags::TRANSFER_DST
-            )
+            .usage(image_usage)
             .image_type(image_type)
             .format(info.format)
             .extent(image_extent)
@@ -108,11 +162,14 @@ impl crate::context::Context {
                 ..Default::default()
             }
         };
-        let (image, allocation) = unsafe { resource_manager.allocator.create_image(&image_create_info, &allocation_create_info)? };
+
+        let (image, allocation) = unsafe {
+            device.allocator.create_image(&image_create_info, &allocation_create_info)?
+        };
 
         // Transition image to ImageLayout::GENERAL
         unsafe {
-            device.logical_device.begin_command_buffer(
+            device.begin_command_buffer(
                 device.graphics_graph.immediate_command_buffer, 
                 &ash::vk::CommandBufferBeginInfo::default()
                     .flags(ash::vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
@@ -128,25 +185,27 @@ impl crate::context::Context {
                 .image(image)
                 .subresource_range(
                     ash::vk::ImageSubresourceRange::default()
-                        .aspect_mask(ash::vk::ImageAspectFlags::COLOR) // TODO: Support for depth/stencil formats
+                        .aspect_mask(aspect_mask)
                         .base_array_layer(0)
                         .layer_count(ash::vk::REMAINING_ARRAY_LAYERS)
                         .base_mip_level(0)
                         .level_count(ash::vk::REMAINING_MIP_LEVELS)
                 );
-            device.logical_device.cmd_pipeline_barrier2(
+            device.cmd_pipeline_barrier2(
                 device.graphics_graph.immediate_command_buffer, 
                 &ash::vk::DependencyInfo::default()
                     .image_memory_barriers(std::slice::from_ref(&barrier))
             );
 
-            device.logical_device.end_command_buffer(device.graphics_graph.immediate_command_buffer)?;
+            device.end_command_buffer(device.graphics_graph.immediate_command_buffer)?;
 
             let command_buffer_info = ash::vk::CommandBufferSubmitInfo::default()
                 .command_buffer(device.graphics_graph.immediate_command_buffer);
             let submit_info = ash::vk::SubmitInfo2::default()
                 .command_buffer_infos(std::slice::from_ref(&command_buffer_info));
-            device.logical_device.queue_submit2(device.graphics_graph.queue, std::slice::from_ref(&submit_info), ash::vk::Fence::null())?;
+            device.queue_submit2(device.graphics_graph.queue, std::slice::from_ref(&submit_info), ash::vk::Fence::null())?;
+
+            device.queue_wait_idle(device.graphics_graph.queue)?;
         }
 
         // Create image views
@@ -166,51 +225,41 @@ impl crate::context::Context {
             .image(image)
             .subresource_range(
                 ash::vk::ImageSubresourceRange::default()
-                    .aspect_mask(ash::vk::ImageAspectFlags::COLOR) // TODO: Support for depth/stencil formats
+                    .aspect_mask(aspect_mask)
                     .level_count(info.mip_levels)
                     .layer_count(info.array_layers)
             );
-        let image_view = unsafe { device.logical_device.create_image_view(&image_view_info, None)? };
-        
-        let image_views = Box::new([image_view]);
-
-        let descriptor_index = match resource_manager.images.free_descriptors.pop() {
+        let image_view = unsafe { device.create_image_view(&image_view_info, None)? };
+        let descriptor_index = match device.image_view_descriptors.free_descriptors.pop() {
             Some(index) => index,
             None => {
-                let index = resource_manager.images.next_descriptor;
-                resource_manager.images.next_descriptor += 1;
+                let index = device.image_view_descriptors.next_descriptor;
+                device.image_view_descriptors.next_descriptor += 1;
                 index
             }
         };
+        let image_views = Box::new([ImageView { descriptor_index, inner: image_view }]);
 
-        resource_manager.images.resources.insert(
-            label.type_id(),
-            Image::Persistent {
-                info,
-                image,
-                image_views,
-                allocation,
-                descriptor_index,
-                #[cfg(debug_assertions)] debug_name
-            }
-        );
+        let host_entity = device.world.spawn(
+            Image { info, image, allocation, image_views }
+        ).id();
 
         let image_info = [
             ash::vk::DescriptorImageInfo::default()
                 .image_view(image_view)
                 .image_layout(ash::vk::ImageLayout::GENERAL)
         ];
-        unsafe { device.logical_device.update_descriptor_sets(
+        unsafe { device.update_descriptor_sets(
             &[
                 ash::vk::WriteDescriptorSet::default()
-                    .dst_set(resource_manager.descriptor_set)
+                    .dst_set(device.descriptor_set)
                     .dst_binding(STORAGE_IMAGE_BINDING)
                     .dst_array_element(descriptor_index)
                     .descriptor_count(1)
                     .descriptor_type(ash::vk::DescriptorType::STORAGE_IMAGE)
                     .image_info(&image_info),
                 ash::vk::WriteDescriptorSet::default()
-                    .dst_set(resource_manager.descriptor_set)
+                    .dst_set(device.descriptor_set)
                     .dst_binding(SAMPLED_IMAGE_BINDING)
                     .dst_array_element(descriptor_index)
                     .descriptor_count(1)
@@ -220,63 +269,60 @@ impl crate::context::Context {
             &[]
         ); }
 
-        device.graph_world.insert_resource::<ResourceIndex<L>>(ResourceIndex::<L> { index: descriptor_index, _marker: PhantomData::<L>::default() });
-
         #[cfg(debug_assertions)]
         unsafe {
-            let image_name = std::ffi::CString::new(format!("Storage Image: {}", debug_name))?;
+            let image_name = std::ffi::CString::new(format!("Storage Image: {}", info.debug_name))?;
             let image_name_info = ash::vk::DebugUtilsObjectNameInfoEXT::default()
                 .object_handle(image)
                 .object_name(&image_name);
-            device.logical_device.debug_utils.set_debug_utils_object_name(&image_name_info)?;
+            self.active_device.debug_utils.set_debug_utils_object_name(&image_name_info)?;
         }
 
-        Ok(())
+        Ok(ImageHandle { host_entity })
     }
 
-    pub fn destroy_image(&mut self, label: impl ImageLabel + 'static) -> Result<()> {
-        let device = &mut self.devices[self.configuring_device as usize];
-        let mut resource_manager = device.graph_world.resource_mut::<ResourceManager>();
+    pub fn get_image(&self, handle: &ImageHandle) -> Result<&Image> {
+        self.active_device.world.get::<Image>(handle.host_entity)
+            .context("Resource is not an Image.")
+    }
 
-        match resource_manager.images.resources.remove(&label.type_id()) {
-            Some(Image::Persistent { info, image, image_views, mut allocation, descriptor_index, debug_name }) => unsafe {
-                let mut image_info = vec![];
+    pub fn destroy_image(&mut self, handle: ImageHandle) -> Result<()> {
+        let device = &mut self.active_device;
 
-                for (offset, image_view) in image_views.iter().enumerate() {
-                    image_info.push(ash::vk::DescriptorImageInfo::default());
+        let mut entity = device.world.entity_mut(handle.host_entity);
+        let Some(mut image) = entity.take::<Image>() else {
+            bail!("Resource is not an Image.")
+        };
+        device.world.despawn(handle.host_entity);
 
-                    device.logical_device.destroy_image_view(*image_view, None);
+        unsafe { device.allocator.destroy_image(image.image, &mut image.allocation) };
 
-                    resource_manager.images.free_descriptors.push(descriptor_index + offset as u32);
-                }
+        for image_view in image.image_views.iter() {
+            device.image_view_descriptors.free_descriptors.push(image_view.descriptor_index);
 
-                device.logical_device.update_descriptor_sets(
-                    &[
-                        ash::vk::WriteDescriptorSet::default()
-                            .dst_set(resource_manager.descriptor_set)
-                            .dst_binding(STORAGE_IMAGE_BINDING)
-                            .dst_array_element(descriptor_index)
-                            .descriptor_count(1)
-                            .descriptor_type(ash::vk::DescriptorType::STORAGE_IMAGE)
-                            .image_info(&image_info),
-                        ash::vk::WriteDescriptorSet::default()
-                            .dst_set(resource_manager.descriptor_set)
-                            .dst_binding(SAMPLED_IMAGE_BINDING)
-                            .dst_array_element(descriptor_index)
-                            .descriptor_count(1)
-                            .descriptor_type(ash::vk::DescriptorType::SAMPLED_IMAGE)
-                            .image_info(&image_info),
-                    ], 
-                    &[]
-                );
+            let image_info = [ash::vk::DescriptorImageInfo::default()];
 
-                resource_manager.allocator.destroy_image(image, &mut allocation);
-                
-            },
-            Some(Image::Transient { info, debug_name }) => {
-                todo!()
-            },
-            None => bail!("No image found with label {}", type_name_of_val(&label))
+            unsafe { device.update_descriptor_sets(
+                &[
+                    ash::vk::WriteDescriptorSet::default()
+                        .dst_set(device.descriptor_set)
+                        .dst_binding(STORAGE_IMAGE_BINDING)
+                        .dst_array_element(image_view.descriptor_index)
+                        .descriptor_count(1)
+                        .descriptor_type(ash::vk::DescriptorType::STORAGE_IMAGE)
+                        .image_info(&image_info),
+                    ash::vk::WriteDescriptorSet::default()
+                        .dst_set(device.descriptor_set)
+                        .dst_binding(SAMPLED_IMAGE_BINDING)
+                        .dst_array_element(image_view.descriptor_index)
+                        .descriptor_count(1)
+                        .descriptor_type(ash::vk::DescriptorType::SAMPLED_IMAGE)
+                        .image_info(&image_info),
+                ], 
+                &[]
+            ); }
+
+            unsafe { device.destroy_image_view(image_view.inner, None) };
         }
 
         Ok(())

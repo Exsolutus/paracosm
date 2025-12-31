@@ -1,50 +1,54 @@
-use crate::{node::resource::ResourceIndex, resource::BUFFER_BINDING};
+use crate::resource::{BUFFER_BINDING, ResourceHandle, SyncLabel};
 
-use super::{ResourceLabel, ResourceManager, TransferMode};
+use super::TransferMode;
 
-use anyhow::{bail, Ok, Result};
+use anyhow::{Context, Ok, Result, bail};
+use bevy_ecs::{component::Component, entity::Entity};
 use vk_mem::{Alloc, AllocationCreateFlags, AllocationCreateInfo, MemoryUsage};
 
-use std::{any::{type_name, type_name_of_val, Any}, marker::PhantomData};
+use std::any::type_name;
 
 
-pub trait BufferLabel: ResourceLabel {  }
+pub struct BufferHandle {
+    host_entity: Entity
+}
 
-pub(crate) enum Buffer {
-    Persistent {
-        buffer: ash::vk::Buffer,
-        allocation: vk_mem::Allocation,
-        descriptor_index: u32,
+impl ResourceHandle for BufferHandle {
+    fn host_entity(&self) -> Entity { self.host_entity }
+}
 
-        transfer_mode: TransferMode,
-        size: usize,
-        #[cfg(debug_assertions)] debug_name: &'static str
-    },
-    Transient {
-        offset: usize,
-        size: usize,
-        #[cfg(debug_assertions)] debug_name: &'static str
-    }
+pub trait BufferLabel: SyncLabel { }
+
+#[derive(Clone, Copy, Default)]
+pub struct BufferInfo {
+    pub transfer_mode: TransferMode,
+    pub size: usize,
+    pub shader_mutable: bool,
+    #[cfg(debug_assertions)] pub debug_name: &'static str
+}
+
+#[derive(Component)]
+pub struct Buffer {
+    pub info: BufferInfo,
+    pub descriptor_index: u32,
+
+    pub(crate) inner: ash::vk::Buffer,
+    pub(crate) allocation: vk_mem::Allocation,
 }
 
 
 impl crate::context::Context {
-    pub fn create_buffer<L: BufferLabel + 'static>(
+    pub fn create_buffer(
         &mut self,
-        label: L,
-        transfer_mode: TransferMode,
-        size: usize,
-    ) -> Result<()> {
-        let device = &mut self.devices[self.configuring_device as usize];
-        let mut resource_manager = device.graph_world.resource_mut::<ResourceManager>();
-
-        let debug_name = type_name_of_val(&label);
+        info: BufferInfo
+    ) -> Result<BufferHandle> {
+        let device = &mut self.active_device;
 
         // Create new storage buffer
         let queue_properties = device.physical_device.properties.queue;
         let queue_families = [queue_properties.graphics_family, queue_properties.compute_family, queue_properties.transfer_family];
         let buffer_create_info = ash::vk::BufferCreateInfo::default()
-            .size(size as u64)
+            .size(info.size as u64)
             .usage(
                 ash::vk::BufferUsageFlags::TRANSFER_SRC | 
                 ash::vk::BufferUsageFlags::TRANSFER_DST | 
@@ -52,7 +56,7 @@ impl crate::context::Context {
             )
             .sharing_mode(ash::vk::SharingMode::CONCURRENT)
             .queue_family_indices(&queue_families);
-        let allocation_create_info = match transfer_mode {
+        let allocation_create_info = match info.transfer_mode {
             TransferMode::Auto |
             TransferMode::AutoUpload |
             TransferMode::AutoDownload => AllocationCreateInfo {
@@ -69,37 +73,31 @@ impl crate::context::Context {
             }
         };
 
-        let descriptor_index = match resource_manager.buffers.free_descriptors.pop() {
+        let descriptor_index = match device.buffer_descriptors.free_descriptors.pop() {
             Some(index) => index,
             None => {
-                let index = resource_manager.buffers.next_descriptor;
-                resource_manager.buffers.next_descriptor += 1;
+                let index = device.buffer_descriptors.next_descriptor;
+                device.buffer_descriptors.next_descriptor += 1;
                 index
             }
         };
 
-        let (buffer, allocation) = unsafe { resource_manager.allocator.create_buffer(&buffer_create_info, &allocation_create_info)? };
-        resource_manager.buffers.resources.insert(
-            label.type_id(),
-            Buffer::Persistent { 
-                buffer, 
-                allocation,
-                descriptor_index,
-                transfer_mode,
-                size,
-                #[cfg(debug_assertions)] debug_name
-            }
-        );
+        let (buffer, allocation) = unsafe {
+            device.allocator.create_buffer(&buffer_create_info, &allocation_create_info)? 
+        };
+        let host_entity = device.world.spawn(
+            Buffer { inner: buffer, allocation, descriptor_index, info }
+        ).id();
 
         let buffer_info = [
             ash::vk::DescriptorBufferInfo::default()
                 .buffer(buffer)
                 .range(ash::vk::WHOLE_SIZE)
         ];
-        unsafe { device.logical_device.update_descriptor_sets(
+        unsafe { device.update_descriptor_sets(
             &[
                 ash::vk::WriteDescriptorSet::default()
-                    .dst_set(resource_manager.descriptor_set)
+                    .dst_set(device.descriptor_set)
                     .dst_binding(BUFFER_BINDING)
                     .dst_array_element(descriptor_index)
                     .descriptor_count(1)
@@ -109,120 +107,104 @@ impl crate::context::Context {
             &[]
         ); }
 
-        device.graph_world.insert_resource::<ResourceIndex<L>>(ResourceIndex::<L> { index: descriptor_index, _marker: PhantomData::<L>::default() });
-
         #[cfg(debug_assertions)]
         unsafe {
-            let buffer_name = std::ffi::CString::new(format!("Storage Buffer: {}", debug_name))?;
+            let buffer_name = std::ffi::CString::new(format!("Storage Buffer: {}", info.debug_name))?;
             let buffer_name_info = ash::vk::DebugUtilsObjectNameInfoEXT::default()
                 .object_handle(buffer)
                 .object_name(&buffer_name);
-            device.logical_device.debug_utils.set_debug_utils_object_name(&buffer_name_info)?;
+            self.active_device.debug_utils.set_debug_utils_object_name(&buffer_name_info)?;
         }
 
-        Ok(())
+        Ok(BufferHandle { host_entity })
     }
 
-    pub fn create_transient_buffer(
-        &mut self, 
-        label: impl BufferLabel, 
-        size: u32
-    ) -> Result<()> {
-        todo!()
+    pub fn get_buffer(&self, handle: &BufferHandle) -> Result<&Buffer> {
+        self.active_device.world.get::<Buffer>(handle.host_entity)
+            .context("Buffer not found.")
     }
 
-    pub fn get_buffer_memory<T>(&self, label: impl BufferLabel + 'static) -> Result<&T> {
-        let device = &self.devices[self.configuring_device as usize];
-        let resource_manager = device.graph_world.resource::<ResourceManager>();
+    pub fn get_buffer_memory<T>(&self, handle: &BufferHandle) -> Result<&T> {
+        let device = &self.active_device;
 
-        match resource_manager.buffers.resources.get(&label.type_id()) {
-            Some(Buffer::Persistent { buffer, allocation, descriptor_index, transfer_mode, size, debug_name }) => {
-                match transfer_mode {
-                    TransferMode::Auto |
-                    TransferMode::AutoUpload |
-                    TransferMode::AutoDownload => todo!(),
-                    TransferMode::Stream => unsafe {
-                        if size_of::<T>() != *size {
-                            bail!("Size of {} does not match buffer size.", type_name::<T>())
-                        }
+        let Some(buffer) = device.world.get::<Buffer>(handle.host_entity) else {
+            bail!("Buffer not found.")
+        };
 
-                        let data_ptr = resource_manager.allocator.get_allocation_info(allocation).mapped_data;
-                        let data = data_ptr as *const T;
-                        
-                        Ok(&*data)
-                    }
+        match buffer.info.transfer_mode {
+            TransferMode::Auto |
+            TransferMode::AutoUpload |
+            TransferMode::AutoDownload => todo!(),
+            TransferMode::Stream => unsafe {
+                if size_of::<T>() != buffer.info.size {
+                    bail!("Size of {} does not match buffer size.", type_name::<T>())
                 }
+
+                let data_ptr = device.allocator.get_allocation_info(&buffer.allocation).mapped_data;
+                let data = data_ptr as *const T;
+
+                Ok(&*data)
             }
-            Some(Buffer::Transient { offset, size, debug_name }) => {
-                bail!("Buffer {} is not host mapped.", debug_name)
-            },
-            None => bail!("No buffer found with label {}.", type_name_of_val(&label))
         }
     }
 
-    pub fn get_buffer_memory_mut<T>(&mut self, label: impl BufferLabel + 'static) -> Result<&mut T> {
-        let device = &mut self.devices[self.configuring_device as usize];
-        let resource_manager = device.graph_world.resource_mut::<ResourceManager>();
+    pub fn get_buffer_memory_mut<T>(&mut self, handle: &mut BufferHandle) -> Result<&mut T> {
+        let device = &self.active_device;
 
-        match resource_manager.buffers.resources.get(&label.type_id()) {
-            Some(Buffer::Persistent { buffer, allocation, descriptor_index, transfer_mode, size, debug_name }) => {
-                match transfer_mode {
-                    TransferMode::Auto |
-                    TransferMode::AutoUpload |
-                    TransferMode::AutoDownload => todo!(),
-                    TransferMode::Stream => unsafe {
-                        if size_of::<T>() != *size {
-                            bail!("Size of {} does not match buffer size.", type_name::<T>())
-                        }
+        let Some(buffer) = device.world.get::<Buffer>(handle.host_entity) else {
+            bail!("Buffer not found.")
+        };
 
-                        let data_ptr = resource_manager.allocator.get_allocation_info(allocation).mapped_data;
-                        let data = data_ptr as *mut T;
-                        
-                        Ok(&mut *data)
-                    }
+        match buffer.info.transfer_mode {
+            TransferMode::Auto |
+            TransferMode::AutoUpload |
+            TransferMode::AutoDownload => todo!(),
+            TransferMode::Stream => unsafe {
+                if size_of::<T>() != buffer.info.size {
+                    bail!("Size of {} does not match buffer size.", type_name::<T>())
                 }
+
+                let data_ptr = device.allocator.get_allocation_info(&buffer.allocation).mapped_data;
+                let data = data_ptr as *mut T;
+
+                Ok(&mut *data)
             }
-            Some(Buffer::Transient { offset, size, debug_name }) => {
-                bail!("Buffer {} is not host mapped.", debug_name)
-            },
-            None => bail!("No buffer found with label {}.", type_name_of_val(&label))
         }
     }
 
+    pub fn destroy_buffer(&mut self, handle: BufferHandle) -> Result<()> {
+        let device = &mut self.active_device;
 
-    pub fn destroy_buffer(&mut self, label: impl BufferLabel + 'static) -> Result<()> {
-        let device = &mut self.devices[self.configuring_device as usize];
-        let mut resource_manager = device.graph_world.resource_mut::<ResourceManager>();
+        let mut entity = device.world.entity_mut(handle.host_entity);
+        let Some(mut buffer) = entity.take::<Buffer>() else {
+            bail!("Buffer not found.")
+        };
+        device.world.despawn(handle.host_entity);
 
-        match resource_manager.buffers.resources.remove(&label.type_id()) {
-            Some(Buffer::Persistent { buffer, mut allocation, descriptor_index, .. }) => unsafe {
-                let buffer_info = [
-                    ash::vk::DescriptorBufferInfo::default()
-                        .buffer(ash::vk::Buffer::null())
-                        .range(ash::vk::WHOLE_SIZE)
-                ];
-            
-                device.logical_device.update_descriptor_sets(
-                    &[
-                        ash::vk::WriteDescriptorSet::default()
-                            .dst_set(resource_manager.descriptor_set)
-                            .dst_binding(BUFFER_BINDING)
-                            .dst_array_element(descriptor_index)
-                            .descriptor_count(1)
-                            .descriptor_type(ash::vk::DescriptorType::STORAGE_BUFFER)
-                            .buffer_info(&buffer_info)
-                    ], 
-                    &[]
-                );
+        let buffer_info = [
+            ash::vk::DescriptorBufferInfo::default()
+                .buffer(ash::vk::Buffer::null())
+                .range(ash::vk::WHOLE_SIZE)
+        ];
+    
+        device.buffer_descriptors.free_descriptors.push(buffer.descriptor_index);
+        unsafe {
+            device.allocator.destroy_buffer(buffer.inner, &mut buffer.allocation);
+            device.update_descriptor_sets(
+                &[
+                    ash::vk::WriteDescriptorSet::default()
+                        .dst_set(device.descriptor_set)
+                        .dst_binding(BUFFER_BINDING)
+                        .dst_array_element(buffer.descriptor_index)
+                        .descriptor_count(1)
+                        .descriptor_type(ash::vk::DescriptorType::STORAGE_BUFFER)
+                        .buffer_info(&buffer_info)
+                ], 
+                &[]
+            );
+        } 
 
-                resource_manager.buffers.free_descriptors.push(descriptor_index);
-                resource_manager.allocator.destroy_buffer(buffer, &mut allocation); 
-            }
-            Some(Buffer::Transient { .. }) => {
-                todo!()
-            },
-            None => bail!("No buffer found with label {}", type_name_of_val(&label))
-        }
+        let success = device.world.despawn(handle.host_entity);
 
         Ok(())
     }

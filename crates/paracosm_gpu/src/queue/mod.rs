@@ -3,7 +3,7 @@ pub mod commands;
 use std::u64;
 
 use commands::Commands;
-use crate::{device::LogicalDevice, resource::ResourceManager};
+use crate::{device::LogicalDevice, resource::surface::Surface};
 
 use anyhow::{bail, Result};
 use bevy_ecs::{
@@ -185,13 +185,14 @@ impl QueueGraph {
             world.insert_resource(Commands::new(device, self.command_buffers[frame_index].clone().into()));
 
             // Acquire next surface images
+            let mut surfaces = world.query::<&mut Surface>();
+
             let mut acquire_semaphores = vec![]; 
             let mut submit_semaphores = vec![]; 
             if self.queue_label == Queue::Graphics {
-                let mut resource_manager = world.resource_mut::<ResourceManager>();
                 let mut image_barriers = vec![];
 
-                for surface in resource_manager.surfaces.iter_mut() {
+                for mut surface in surfaces.iter_mut(world) {
                     let (barrier, acquire_semaphore, submit_semaphore) = surface.acquire()?;
                     
                     image_barriers.push(barrier);
@@ -229,8 +230,7 @@ impl QueueGraph {
                     signal_semaphore_infos.append(&mut submit_semaphores);
             
                     let mut image_barriers = vec![];
-                    let mut resource_manager = world.resource_mut::<ResourceManager>();
-                    for surface in resource_manager.surfaces.iter_mut() {
+                    for mut surface in surfaces.iter_mut(world) {
                         image_barriers.push(surface.finish()?);
                     }
                     
@@ -264,8 +264,7 @@ impl QueueGraph {
 
                 unsafe { device.queue_submit2(self.queue, std::slice::from_ref(&submit_info), ash::vk::Fence::null()).unwrap(); }
 
-                let mut resource_manager = world.resource_mut::<ResourceManager>();
-                for surface in resource_manager.surfaces.iter_mut() {
+                for mut surface in surfaces.iter_mut(world) {
                     surface.present(self.queue)?;
                 }
             }
@@ -329,43 +328,30 @@ impl Drop for QueueGraph {
 
 impl crate::context::Context {
     pub fn add_nodes<M>(&mut self, queue: Queue, nodes: impl IntoScheduleConfigs<ScheduleSystem, M>) -> Result<&mut Self> {
-        let device = &mut self.devices[self.configuring_device as usize];
-        
         // Add nodes to queue graph in latest submit set
         match queue {
-            Queue::Compute => device.compute_graph.add_nodes::<M>(nodes)?,
-            Queue::Graphics => device.graphics_graph.add_nodes::<M>(nodes)?,
+            Queue::Compute => self.active_device.compute_graph.add_nodes::<M>(nodes)?,
+            Queue::Graphics => self.active_device.graphics_graph.add_nodes::<M>(nodes)?,
         }
 
         Ok(self)
     }
 
     pub fn add_submit(&mut self, queue: Queue, wait: Option<(Queue, u32)>) -> Result<u32> {
-        let device = &mut self.devices[self.configuring_device as usize];
-
         let wait = match wait {
-            Some((Queue::Compute, value)) => Some((device.compute_graph.queue_timeline, value)),
-            Some((Queue::Graphics, value)) => Some((device.graphics_graph.queue_timeline, value)),
+            Some((Queue::Compute, value)) => Some((self.active_device.compute_graph.queue_timeline, value)),
+            Some((Queue::Graphics, value)) => Some((self.active_device.graphics_graph.queue_timeline, value)),
             None => None
         };
 
         // Get per-queue access
         match queue {
-            Queue::Compute => device.compute_graph.add_submit(wait),
-            Queue::Graphics => device.graphics_graph.add_submit(wait)
+            Queue::Compute => self.active_device.compute_graph.add_submit(wait),
+            Queue::Graphics => self.active_device.graphics_graph.add_submit(wait)
         }
     }
 
     pub fn clear_queue(&mut self, queue: Queue) -> Result<()> {
-        let device = &mut self.devices[self.configuring_device as usize];
-
-        let graph = match queue {
-            Queue::Compute => &mut device.compute_graph,
-            Queue::Graphics => &mut device.graphics_graph
-        };
-        unsafe { device.logical_device.reset_command_pool(graph.command_pool, ash::vk::CommandPoolResetFlags::empty())? };
-        graph.command_buffers = Default::default();
-
-        Ok(())
+        todo!()
     }
 }

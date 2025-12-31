@@ -3,8 +3,9 @@ members = [
     "crates/paracosm_gpu",
     
     # Examples shader crates
-    "examples/gpu/game_of_life/shaders",
     "examples/gpu/hello_compute/shaders",
+    "examples/gpu/game_of_life/shaders",
+    "examples/gpu/hello_triangle/shaders",
 ]
 resolver = "2"
 
@@ -35,9 +36,11 @@ paracosm_gpu = { path = "crates/paracosm_gpu" }
 bevy = { version = "0.16.1", default-features = false, features = [
     "bevy_winit",
 ] }
+glam = "0.29.3"
 
 hello_compute_shared = { path = "examples/gpu/hello_compute/shared" }
 game_of_life_shared = { path = "examples/gpu/game_of_life/shared" }
+hello_triangle_shared = { path = "examples/gpu/hello_triangle/shared" }
 
 
 [[example]]
@@ -51,6 +54,10 @@ path = "examples/gpu/basic_usage.rs"
 [[example]]
 name = "game_of_life"
 path = "examples/gpu/game_of_life/main.rs"
+
+[[example]]
+name = "hello_triangle"
+path = "examples/gpu/hello_triangle/main.rs"
 
 
 

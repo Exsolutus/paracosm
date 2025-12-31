@@ -1,43 +1,85 @@
-use crate::resource::ResourceLabel;
+use crate::{prelude::SurfaceLabel, resource::{SyncLabel, SyncLabelComponent, buffer::{Buffer, BufferLabel}, image::{Image, ImageLabel}, surface::Surface}};
 
-use bevy_ecs::{
-    prelude::Resource,
-    system::{Res, ResMut, SystemParam}
-};
+use anyhow::Result;
+use bevy_ecs::{query::AnyOf, system::{Query, SystemParam}};
 
-use std::{marker::PhantomData, ops::Deref};
+use std::any::type_name;
+
 
 
 // Resource access parameters
 #[derive(SystemParam)]
-pub struct Read<'w, L: ResourceLabel + 'static> {
-    res: Res<'w, ResourceIndex<L>>,
+pub struct Read<'w, 's, L: SyncLabel + 'static> {
+    entity: Query<'w, 's, (
+        &'static SyncLabelComponent<L>, 
+        AnyOf<(&'static Buffer, &'static Image, &'static Surface)>
+    )>
 }
 
-impl<'w, L: ResourceLabel + 'static> Deref for Read<'w, L> {
-    type Target = u32;
+impl<'w, 's, L: BufferLabel + 'static> Read<'w, 's, L> {
+    pub fn buffer(&self) -> &Buffer {
+        let Ok((_, (Some(buffer), _, _))) = self.entity.single() else {
+            panic!("No resource found for label {}", type_name::<L>())
+        };
 
-    fn deref(&self) -> &Self::Target {
-        &self.res.index
+        buffer
     }
 }
 
+impl<'w, 's, L: ImageLabel + 'static> Read<'w, 's, L> {
+    pub fn image(&self) -> &Image {
+        let Ok((_, (_, Some(image), _))) = self.entity.single() else {
+            panic!("No resource found for label {}", type_name::<L>())
+        };
+
+        image
+    }
+}
+
+impl<'w, 's, L: SurfaceLabel + 'static> Read<'w, 's, L> {
+    pub(crate) fn surface(&self) -> &Surface {
+        let Ok((_, (_, _, Some(surface)))) = self.entity.single() else {
+            panic!("No resource found for label {}", type_name::<L>())
+        };
+
+        surface
+    }
+}
 
 #[derive(SystemParam)]
-pub struct Write<'w, L: ResourceLabel + 'static> {
-    res: ResMut<'w, ResourceIndex<L>>,
+pub struct Write<'w, 's, L: SyncLabel + 'static> {
+    entity: Query<'w, 's, (
+        &'static SyncLabelComponent<L>, 
+        AnyOf<(&'static Buffer, &'static Image, &'static Surface)>
+    )>
 }
 
-impl<'w, L: ResourceLabel + 'static> Deref for Write<'w, L> {
-    type Target = u32;
+impl<'w, 's, L: BufferLabel + 'static> Write<'w, 's, L> {
+    pub fn buffer(&self) -> &Buffer {
+        let Ok((_, (Some(buffer), _, _))) = self.entity.single() else {
+            panic!("No resource found for label {}", type_name::<L>())
+        };
 
-    fn deref(&self) -> &Self::Target {
-        &self.res.index
+        buffer
     }
 }
 
-#[derive(Resource)]
-pub(crate) struct ResourceIndex<L: ResourceLabel> {
-    pub index: u32,
-    pub _marker: PhantomData<L>
+impl<'w, 's, L: ImageLabel + 'static> Write<'w, 's, L> {
+    pub fn image(&self) -> &Image {
+        let Ok((_, (_, Some(image), _))) = self.entity.single() else {
+            panic!("No resource found for label {}", type_name::<L>())
+        };
+
+        image
+    }
+}
+
+impl<'w, 's, L: SurfaceLabel + 'static> Write<'w, 's, L> {
+    pub(crate) fn surface(&self) -> &Surface {
+        let Ok((_, (_, _, Some(surface)))) = self.entity.single() else {
+            panic!("No resource found for label {}", type_name::<L>())
+        };
+
+        surface
+    }
 }

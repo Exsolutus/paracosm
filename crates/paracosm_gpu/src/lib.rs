@@ -25,10 +25,17 @@ pub mod prelude {
         interface::*,
         resource::{Read, Write}
     };
-    pub use crate::pipeline::PipelineLabel;
+    pub use crate::pipeline::{
+        PipelineLabel,
+        PipelineInfo,
+        ShaderSource,
+        graphics::*
+    };
     pub use crate::resource::{
-        buffer::BufferLabel,
-        image::ImageLabel,
+        TransferMode,
+        image::{
+            Format
+        },
     };
     pub use crate::resource::surface::{
         SurfaceLabel,

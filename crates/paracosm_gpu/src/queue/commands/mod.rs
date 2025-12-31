@@ -4,8 +4,7 @@ pub mod transfer;
 
 use crate::{
     device::LogicalDevice,
-    pipeline::{Pipeline, PipelineInfo, PipelineLabel}, 
-    resource::ResourceManager
+    pipeline::{Pipeline, PipelineInfo, PipelineLabel}
 };
 
 use anyhow::{bail, Ok, Result};
@@ -47,11 +46,10 @@ impl Commands {
 
 
 pub(crate) trait CommandRecorder {
-    fn device(&self) -> &ash::Device;
+    fn device(&self) -> &LogicalDevice;
     fn command_buffer(&self) -> ash::vk::CommandBuffer;
     fn pipeline<L: PipelineLabel + 'static>(&self, label: L) -> Result<&Pipeline>;
     fn pipeline_constants(&self) -> (ash::vk::PipelineLayout, u32);
-    fn resources(&self) -> &ResourceManager;
 }
 
 #[allow(private_bounds)]

@@ -36,6 +36,7 @@ A frame graph based GPU-driven Vulkan abstraction library.
 
 - Usage examples and samples
   - [x] Hello Compute
+  - [x] Hello Triangle
   - [x] Game of Life
   - [ ] Boids
   - [ ] Fluid Sim

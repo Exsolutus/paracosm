@@ -1,11 +1,11 @@
 use crate::{device::{Device, DeviceProperties, PhysicalDevice}};
 #[cfg(debug_assertions)] use crate::validation::*;
 
-use anyhow::{bail, Context as _, Result};
+use anyhow::{Context as _, Result};
 use bevy_ecs::prelude::Resource;
 
 use std::{
-    collections::VecDeque, default::Default, ffi::{c_char, CStr, CString}, mem::ManuallyDrop
+    default::Default, ffi::{c_char, CStr, CString}, mem::ManuallyDrop
 };
 
 
@@ -37,9 +37,8 @@ pub struct Context {
     pub(crate) entry: ash::Entry,
     pub(crate) instance: ash::Instance,
 
-    pub(crate) primary_device: u32,
-    pub(crate) configuring_device: u32,
-    pub(crate) devices: ManuallyDrop<Box<[Device]>>,
+    pub(crate) active_device: ManuallyDrop<Device>,
+    pub(crate) devices: Box<[PhysicalDevice]>,
 
     pub(crate) display_support: bool,
 
@@ -100,10 +99,10 @@ impl Context {
         };
 
         // Create Vulkan devices
-        let mut physical_devices = unsafe { instance.enumerate_physical_devices()?
+        let physical_devices = unsafe { instance.enumerate_physical_devices()?
             .iter()
             .map(|&physical_device| { PhysicalDevice::new(&instance, physical_device).unwrap() })
-            .collect::<VecDeque<_>>()
+            .collect::<Box<[_]>>()
         };
 
         println!("Available devices: {:?}", physical_devices.iter()
@@ -111,9 +110,8 @@ impl Context {
             .collect::<Vec<_>>()
         );
 
-        let primary_device = physical_devices.iter()
-            .enumerate()
-            .max_by_key(|(_, physical_device)| {
+        let selected_device = physical_devices.iter()
+            .max_by_key(|&physical_device| {
                 match physical_device.properties.api_version >= ash::vk::API_VERSION_1_3 {
                     true => match physical_device.properties.device_type {
                         ash::vk::PhysicalDeviceType::DISCRETE_GPU => 1000,
@@ -124,15 +122,11 @@ impl Context {
                     false => 0
                 }
             })
-            .map(|(index, _)| index as u32)
             .context("No valid device found.")?;
 
-        println!("Selected primary device: {}, {:?}", primary_device, physical_devices[primary_device as usize].properties.device_name_as_c_str().unwrap());
+        println!("Selected device: {:?}", selected_device.properties.device_name_as_c_str().unwrap());
 
-        let mut devices = Vec::with_capacity(physical_devices.len());
-        for _ in 0..physical_devices.len() {
-            devices.push(Device::new(instance.clone(), physical_devices.pop_front().unwrap(), display.is_some())?);
-        }
+        let active_device = ManuallyDrop::new(Device::new(instance.clone(), *selected_device, display.is_some())?);
 
         // Create Vulkan debug messenger
         #[cfg(debug_assertions)]
@@ -163,9 +157,8 @@ impl Context {
             info,
             entry,
             instance,
-            primary_device,
-            configuring_device: primary_device,
-            devices: ManuallyDrop::new(devices.into_boxed_slice()),
+            active_device,
+            devices: physical_devices,
             display_support: display.is_some(),
             #[cfg(debug_assertions)] _debug_utils,
             #[cfg(debug_assertions)] _debug_utils_messenger
@@ -175,24 +168,23 @@ impl Context {
     pub fn devices(&self) -> Box<[&DeviceProperties]> {
         self.devices.iter()
             .map(|device| {
-                device.properties()
+                &device.properties
             })
-            .collect::<Vec<&DeviceProperties>>()
-            .into_boxed_slice()
+            .collect()
     }
 
-    pub fn set_primary_device(&mut self, index: u32) -> Result<()> {
-        match index < self.devices.len() as u32 {
-            true => {
-                self.primary_device = index;
-                //self.surfaces[self.primary_surface as usize].configure(&self.devices[index as usize], config)
-            },
-            false => bail!("'index' should be a valid device index.")
-        };
+    // pub fn set_primary_device(&mut self, index: u32) -> Result<()> {
+    //     match index < self.devices.len() as u32 {
+    //         true => {
+    //             self.primary_device = index;
+    //             //self.surfaces[self.primary_surface as usize].configure(&self.devices[index as usize], config)
+    //         },
+    //         false => bail!("'index' should be a valid device index.")
+    //     };
 
-        // TODO: any necessary validation/cleanup/recreation
-        todo!()
-    }
+    //     // TODO: any necessary validation/cleanup/recreation
+    //     todo!()
+    // }
 
     // TODO: properly implement multi-device support
     // pub fn configuring_device(&mut self, index: u32) -> Result<()> {
@@ -204,13 +196,9 @@ impl Context {
     //     todo!()
     // }
 
-    /// Executes the frame graph of each device.
+    /// Executes the frame graph of the active device.
     pub fn execute(&mut self) -> Result<()> {
-        for device in self.devices.iter_mut() {
-            device.execute()?
-        }
-
-        Ok(())
+        self.active_device.execute()
     }
 }
 
@@ -229,7 +217,7 @@ impl Drop for Context {
 
         unsafe {
             // Drop all devices
-            ManuallyDrop::drop(&mut self.devices);
+            ManuallyDrop::drop(&mut self.active_device);
 
             //  Safety: vkDestroyInstance
             //  Host Synchronization

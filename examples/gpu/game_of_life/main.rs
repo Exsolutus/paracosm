@@ -1,5 +1,5 @@
 use paracosm_gpu::{
-    pipeline::ShaderSource, prelude::*, resource::{image::{Format, ImageInfo, SampleCountFlags}, TransferMode}
+    pipeline::ShaderSource, prelude::*, resource::{image::{Format, ImageInfo}, TransferMode}
 };
 
 use bevy::{
@@ -35,8 +35,6 @@ fn main() {
                 .set(WindowPlugin {
                         primary_window: Some(Window {
                             resolution: (SIZE * DISPLAY_FACTOR).as_vec2().into(),
-                            // uncomment for unthrottled FPS
-                            // present_mode: bevy::window::PresentMode::AutoNoVsync,
                             ..default()
                         }),
                         ..default()
@@ -82,43 +80,48 @@ fn startup(
         SurfaceConfig::default()
     ).unwrap();
 
+    // Load shaders
+    let shader_source = ShaderSource::Crate("examples/gpu/game_of_life/shaders".into());
+    context.create_pipeline(GameOfLifeInit, paracosm_gpu::pipeline::PipelineInfo::Compute { 
+        shader_source: shader_source.clone(), 
+        entry_point: "init" 
+    }).unwrap();
+    context.create_pipeline(GameOfLifeUpdate, paracosm_gpu::pipeline::PipelineInfo::Compute { 
+        shader_source, 
+        entry_point: "update" 
+    }).unwrap();
+
     // Create game image
-    context.create_image(GameOfLifeImage, ImageInfo {
+    let game_of_life_image = context.create_image(ImageInfo {
         format: Format::R32_SFLOAT,
         extent: [SIZE.x, SIZE.y, 0],
         mip_levels: 1,
         array_layers: 1,
-        samples: SampleCountFlags::TYPE_1,
+        samples: SampleCount::TYPE_1,
         shared: false,
-        transfer_mode: TransferMode::Auto
+        transfer_mode: TransferMode::Auto,
+        shader_mutable: true,
+        #[cfg(debug_assertions)] debug_name: "GameOfLifeImage"
     }).unwrap();
-
-    // Load shaders
-    let shader_module = context.load_shader_module(ShaderSource::Crate("examples/gpu/game_of_life/shaders".into())).unwrap();
-    context.create_pipeline(GameOfLifeInit, paracosm_gpu::pipeline::PipelineInfo::Compute { 
-        shader_module: shader_module.clone(), 
-        entry_point: "init" 
-    }).unwrap();
-    context.create_pipeline(GameOfLifeUpdate, paracosm_gpu::pipeline::PipelineInfo::Compute { 
-        shader_module, 
-        entry_point: "update" 
-    }).unwrap();
-
-    
+    context.set_image_label(GameOfLifeImage, &game_of_life_image).unwrap();
 
     context.add_nodes(Queue::Graphics, (
         |mut interface: ComputeInterface, mut state: Local<GameOfLifeState>, game: Write<GameOfLifeImage>| {
             match *state {
                 GameOfLifeState::Init => {
                     interface.bind_pipeline(GameOfLifeInit).unwrap();
-                    interface.set_push_constant(PushConstant { descriptor_index: *game }).unwrap();
+                    interface.set_push_constant(PushConstant { 
+                        descriptor_index: game.image().view(0).descriptor_index
+                    }).unwrap();
                     interface.dispatch(SIZE.x / WORKGROUP_SIZE, SIZE.y / WORKGROUP_SIZE, 1);
 
                     *state = GameOfLifeState::Update;
                 },
                 GameOfLifeState::Update => {
                     interface.bind_pipeline(GameOfLifeUpdate).unwrap();
-                    interface.set_push_constant(PushConstant { descriptor_index: *game }).unwrap();
+                    interface.set_push_constant(PushConstant {
+                        descriptor_index: game.image().view(0).descriptor_index
+                    }).unwrap();
                     interface.dispatch(SIZE.x / WORKGROUP_SIZE, SIZE.y / WORKGROUP_SIZE, 1);
                 }
             }
@@ -138,11 +141,11 @@ fn update(
 }
 
 fn shutdown(
-    mut context: ResMut<Context>,
+    context: ResMut<Context>,
     app_exit: EventReader<AppExit>
 ) {
     if !app_exit.is_empty() {
         context.wait_idle();
-        context.destroy_image(GameOfLifeImage).unwrap();
+        //context.destroy_image(GameOfLifeImage).unwrap();
     }
 }

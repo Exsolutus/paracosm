@@ -1,4 +1,5 @@
-mod compute;
+pub mod compute;
+pub mod graphics;
 
 use crate::device::LogicalDevice;
 
@@ -8,29 +9,48 @@ use bevy_ecs::resource::Resource;
 use std::{
     any::{type_name, TypeId}, 
     collections::HashMap, 
-    path::{Path, PathBuf}, 
+    path::{Path, PathBuf}, rc::Rc, 
+    fs::File
 };
 
 
 pub trait PipelineLabel { }
 
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum ShaderSource {
     Crate(PathBuf),
     SPV(PathBuf),
 }
 
-#[derive(Clone)]
-pub struct ShaderModule {
-    pub(crate) spv_path: Box<Path>,
-    pub(crate) crate_path: Option<Box<Path>>
+pub(crate) struct ShaderModule {
+    pub(crate) spv_path: Rc<Path>,
+    pub(crate) crate_path: Option<Rc<Path>>,
+    pub(crate) inner: ash::vk::ShaderModule
+}
+
+impl std::ops::Deref for ShaderModule {
+    type Target = ash::vk::ShaderModule;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 pub enum PipelineInfo {
     Compute {
-        shader_module: ShaderModule,
+        shader_source: ShaderSource,
         entry_point: &'static str,
     },
-    Graphics { },
+    Graphics {
+        task_shader: Option<(ShaderSource, &'static str)>,
+        mesh_shader: (ShaderSource, &'static str),
+        fragment_shader: (ShaderSource, &'static str),
+        viewport: graphics::ViewportInfo,
+        rasterization: graphics::RasterizationInfo,
+        multisample: graphics::MultisampleInfo,
+        depth_stencil: graphics::DepthTestInfo,
+        attachment: graphics::AttachmentInfo,
+    },
     RayTracing { }
 }
 
@@ -49,6 +69,7 @@ pub(crate) struct PipelineManager {
     device: *const LogicalDevice,
     pub pipeline_layout: ash::vk::PipelineLayout,
     pub max_push_constants_size: u32,
+    shader_modules: HashMap<ShaderSource, ShaderModule>,
     pipelines: HashMap<TypeId, Pipeline>
 }
 // SAFETY: Valid so long as mutable access to PipelineManager is only exposed through the Context
@@ -62,7 +83,11 @@ impl PipelineManager {
         descriptor_set_layout: &ash::vk::DescriptorSetLayout
     ) -> Result<Self> {
         let push_constant_range = ash::vk::PushConstantRange::default()
-            .stage_flags(ash::vk::ShaderStageFlags::ALL)
+            .stage_flags(
+                ash::vk::ShaderStageFlags::ALL | 
+                ash::vk::ShaderStageFlags::MESH_EXT | 
+                ash::vk::ShaderStageFlags::TASK_EXT
+            )
             .size(max_push_constants_size);
         let pipeline_layout_create_info = ash::vk::PipelineLayoutCreateInfo::default()
             .set_layouts(std::slice::from_ref(descriptor_set_layout))
@@ -76,6 +101,7 @@ impl PipelineManager {
             device,
             pipeline_layout,
             max_push_constants_size,
+            shader_modules: HashMap::default(),
             pipelines: HashMap::default()
         })
     }
@@ -92,47 +118,100 @@ impl PipelineManager {
             bail!("Overwriting pipelines is not currently supported.")
         }
 
-        match &info {
-            PipelineInfo::Compute { shader_module, entry_point } => {
-                let device = unsafe { self.device.as_ref().unwrap() };
+        let device = unsafe { self.device.as_ref().unwrap() };
+        let pipeline = match &info {
+            PipelineInfo::Compute { shader_source, entry_point } => {
+                let pipeline_layout = self.pipeline_layout;
+                let shader_module = self.load_shader_module(shader_source)?;
+
                 let pipeline = compute::create_compute_pipeline(
                     device,
-                    shader_module, 
-                    &entry_point, 
-                    &self.pipeline_layout,
+                    &shader_module, 
+                    entry_point, 
+                    pipeline_layout,
                     #[cfg(debug_assertions)] std::any::type_name::<L>()
                 )?;
 
-                self.pipelines.insert(TypeId::of::<L>(), Pipeline {
-                    info,
-                    inner: pipeline
-                });
+                self.shader_modules.insert((*shader_source).clone(), shader_module);
+
+                pipeline
             },
-            _ => todo!()
-        }
+            PipelineInfo::Graphics { 
+                task_shader, 
+                mesh_shader, 
+                fragment_shader, 
+                viewport, 
+                rasterization, 
+                multisample, 
+                depth_stencil, 
+                attachment
+            } => {
+                let pipeline_layout = self.pipeline_layout;
+                match task_shader {
+                    Some((shader_source, entry_point)) => {
+                        let task_shader_module = self.load_shader_module(shader_source)?;
+                        let mesh_shader_module = self.load_shader_module(&mesh_shader.0)?;
+                        let fragment_shader_module = self.load_shader_module(&fragment_shader.0)?;
+
+                        let pipeline = graphics::create_graphics_pipeline(
+                            device, 
+                            Some((&task_shader_module, entry_point)), 
+                            (&mesh_shader_module, mesh_shader.1), 
+                            (&fragment_shader_module, fragment_shader.1), 
+                            &viewport, 
+                            &rasterization, 
+                            &multisample, 
+                            &depth_stencil, 
+                            &attachment,
+                            pipeline_layout,
+                            #[cfg(debug_assertions)] std::any::type_name::<L>()
+                        )?;
+
+                        self.shader_modules.insert((*shader_source).clone(), task_shader_module);
+                        self.shader_modules.insert(mesh_shader.0.clone(), mesh_shader_module);
+                        self.shader_modules.insert(fragment_shader.0.clone(), fragment_shader_module);
+
+                        pipeline
+                    },
+                    None => {
+                        let mesh_shader_module = self.load_shader_module(&mesh_shader.0)?;
+                        let fragment_shader_module = self.load_shader_module(&fragment_shader.0)?;
+
+                        let pipeline = graphics::create_graphics_pipeline(
+                            device, 
+                            None, 
+                            (&mesh_shader_module, mesh_shader.1), 
+                            (&fragment_shader_module, fragment_shader.1), 
+                            viewport, 
+                            rasterization, 
+                            multisample, 
+                            depth_stencil, 
+                            attachment,
+                            pipeline_layout,
+                            #[cfg(debug_assertions)] std::any::type_name::<L>()
+                        )?;
+
+                        self.shader_modules.insert(mesh_shader.0.clone(), mesh_shader_module);
+                        self.shader_modules.insert(fragment_shader.0.clone(), fragment_shader_module);
+
+                        pipeline
+                    }
+                }
+            }
+            PipelineInfo::RayTracing {  } => todo!()
+        };
+        
+        self.pipelines.insert(TypeId::of::<L>(), Pipeline {
+            info,
+            inner: pipeline
+        });
 
         Ok(())
     }
-}
 
-impl Drop for PipelineManager {
-    fn drop(&mut self) {
-        unsafe {
-            let device = self.device.as_ref().unwrap();
+    fn load_shader_module(&mut self, source: &ShaderSource) -> Result<ShaderModule> {
+        let device = unsafe { self.device.as_ref().unwrap() };
 
-            // TODO: Verify destruction safety requirements
-            for (_, pipeline) in self.pipelines.iter() {
-                device.destroy_pipeline(**pipeline, None);
-            }
-
-            device.destroy_pipeline_layout(self.pipeline_layout, None);
-        }
-    }
-}
-
-
-impl crate::context::Context {
-    pub fn load_shader_module(&self, source: ShaderSource) -> Result<ShaderModule> {
         match source {
             ShaderSource::Crate(path) => {
                 let full_path = std::path::absolute(&path)?;
@@ -158,24 +237,70 @@ impl crate::context::Context {
                 //let _stderr = String::from_utf8(output.stderr)?;
 
                 let lines: Vec<&str> = stdout.lines().collect();
+                //println!("{:?}", lines);
                 let spv_path = Path::new(lines[lines.len() - 1]);
+                let spv_file = &mut File::open(spv_path)?;
+                let spirv = &ash::util::read_spv(spv_file)?;
+                
+                let shader_module = unsafe { 
+                    device.create_shader_module(
+                        &ash::vk::ShaderModuleCreateInfo::default()
+                            .code(&spirv), 
+                        None
+                    )? 
+                };
 
                 Ok(ShaderModule {
                     spv_path: spv_path.into(),
-                    crate_path: Some(path.into())
+                    crate_path: Some(path.as_path().into()),
+                    inner: shader_module
                 })
             },
             ShaderSource::SPV(path) => {
+                let spv_file = &mut File::open(&path)?;
+                let spirv = &ash::util::read_spv(spv_file)?;
+                
+                let shader_module = unsafe { 
+                    device.create_shader_module(
+                        &ash::vk::ShaderModuleCreateInfo::default()
+                            .code(&spirv), 
+                        None
+                    )? 
+                };
+
                 Ok(ShaderModule {
-                    spv_path: path.into(),
-                    crate_path: None
+                    spv_path: path.as_path().into(),
+                    crate_path: None,
+                    inner: shader_module
                 })
             }
         }
     }
+}
 
+impl Drop for PipelineManager {
+    fn drop(&mut self) {
+        unsafe {
+            let device = self.device.as_ref().unwrap();
+
+            for (_, shader_module) in self.shader_modules.iter() {
+                device.destroy_shader_module(**shader_module, None);
+            }
+
+            // TODO: Verify destruction safety requirements
+            for (_, pipeline) in self.pipelines.iter() {
+                device.destroy_pipeline(**pipeline, None);
+            }
+
+            device.destroy_pipeline_layout(self.pipeline_layout, None);
+        }
+    }
+}
+
+
+impl crate::context::Context {
     pub fn create_pipeline(&mut self, label: impl PipelineLabel + 'static, info: PipelineInfo) -> Result<()> {
-        self.devices[self.configuring_device as usize].graph_world
+        self.active_device.world
             .resource_mut::<PipelineManager>()
             .set(label, info)
     }

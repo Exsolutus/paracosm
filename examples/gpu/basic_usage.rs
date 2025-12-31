@@ -1,5 +1,5 @@
 use paracosm_gpu::{
-    pipeline::{PipelineInfo, ShaderSource}, prelude::*, resource::{image::ImageInfo, TransferMode}
+    pipeline::{PipelineInfo, ShaderSource}, prelude::*, resource::{TransferMode, buffer::BufferInfo, image::ImageInfo}
 };
 
 use bevy::{prelude::*, winit::DisplayHandleWrapper};
@@ -29,7 +29,7 @@ fn main() {
 }
 
 fn startup(
-    world: &mut World,
+    world: &mut World
 ) {
     // Create GPU context
     let display = world.resource::<DisplayHandleWrapper>();
@@ -42,14 +42,14 @@ fn startup(
         Some(&display.0)
     ).unwrap();
 
-    // Check properties of active devices
+    // Check properties of available devices
     let devices = context.devices();
 
-    // Optionally, manually set the primary device (index order as returned by [`devices()`])
-    // context.set_primary_device(0).unwrap();
+    // Optionally, manually set the active device (index order as returned by [`devices()`])
+    // context.switch_active_device(0).unwrap();
 
 
-    // Work with primary device
+    // Work with active device
     {        
         // Manage active window surfaces
         let mut primary_window = world.query::<(Entity, &Window, &bevy::window::RawHandleWrapper, &bevy::window::PrimaryWindow)>();
@@ -58,22 +58,28 @@ fn startup(
         context.create_surface(PrimarySurface, primary_window_handle, SurfaceConfig::default()).unwrap();
 
         // Resources
-        context.create_buffer(BufferA, TransferMode::Auto, 10).unwrap();
-        context.create_transient_buffer(BufferB, 10).unwrap();
-        //context.destroy_buffer(BufferA).unwrap();
+        let buffer = context.create_buffer(BufferInfo::default()).unwrap();             // Create buffer resource
+        //let memory = context.get_buffer_memory::<T>(&buffer).unwrap();                // Host read access to buffer memory
+        //let mut memory = context.get_buffer_memory_mut::<T>(&mut buffer).unwrap();    // Host read-write access to buffer memory
+        //context.destroy_buffer(buffer).unwrap();
 
-        context.create_image(ImageA, ImageInfo::default()).unwrap();
-        //context.destroy_image(ImageA).unwrap();
+        let image = context.create_image(ImageInfo::default()).unwrap();                // Create image resource
+        //context.destroy_image(image).unwrap();
 
+        context.set_buffer_label(BufferA, &buffer).unwrap();    // Convert buffer to read-write with synchronization label
+        context.set_image_label(ImageA, &image).unwrap();      // Convert image to read-write with synchronization label
+        
         // Pipelines
-        let shader_module_a = context.load_shader_module(ShaderSource::Crate("path to shader crate here".into())).unwrap();
-
         context.create_pipeline(ComputeA, PipelineInfo::Compute {
-            shader_module: shader_module_a,
+            shader_source: ShaderSource::Crate("path to shader crate here".into()),
             entry_point: "main_cs",
         }).unwrap();
-        context.create_pipeline(GraphicsA, PipelineInfo::Graphics {  }).unwrap();
-        context.create_pipeline(RayTracingA, PipelineInfo::RayTracing {  }).unwrap();
+        // context.create_pipeline(GraphicsA, PipelineInfo::Graphics {
+        //     shader_module: shader_module_a,
+        //     vertex_entry_point: "main_vs",
+        //     fragment_entry_point: "main_fs"
+        // }).unwrap();
+        // context.create_pipeline(RayTracingA, PipelineInfo::RayTracing {  }).unwrap();
 
         // Define nodes
         fn read(interface: ComputeInterface, read: Read<BufferA>) { /* ... */ }
@@ -96,7 +102,7 @@ fn startup(
 
         context.add_nodes(
             Queue::Compute,
-            |interface: ComputeInterface, write: Write<BufferA>| {
+            |mut interface: ComputeInterface, write: Write<BufferA>| {
                 /* ... */
             }
         ).unwrap();

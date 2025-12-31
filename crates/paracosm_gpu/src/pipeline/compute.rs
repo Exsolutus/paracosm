@@ -1,4 +1,4 @@
-use crate::device::LogicalDevice;
+use crate::{device::LogicalDevice, pipeline::ShaderModule};
 
 use anyhow::{bail, Result};
 
@@ -8,11 +8,11 @@ use std::{
 };
 
 
-pub fn create_compute_pipeline(
+pub(crate) fn create_compute_pipeline(
     device: &LogicalDevice,
-    shader_module: &crate::pipeline::ShaderModule, 
+    shader_module: &ShaderModule, 
     entry_point: &'static str,
-    pipeline_layout: &ash::vk::PipelineLayout,
+    pipeline_layout: ash::vk::PipelineLayout,
     #[cfg(debug_assertions)] debug_name: &'static str
 ) -> Result<ash::vk::Pipeline> {
     let spv_file = &mut File::open(shader_module.spv_path.clone())?;
@@ -28,7 +28,7 @@ pub fn create_compute_pipeline(
             .stage(ash::vk::ShaderStageFlags::COMPUTE)
             .name(&entry_point)
         )
-        .layout(*pipeline_layout);
+        .layout(pipeline_layout);
     let pipeline = unsafe {
         match device.create_compute_pipelines(
             ash::vk::PipelineCache::null(), 
