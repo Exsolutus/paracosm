@@ -7,10 +7,7 @@ use anyhow::{bail, Context, Result};
 use bevy_ecs::resource::Resource;
 
 use std::{
-    any::{type_name, TypeId}, 
-    collections::HashMap, 
-    path::{Path, PathBuf}, rc::Rc, 
-    fs::File
+    any::{TypeId, type_name}, collections::HashMap, fs::File, path::{Path, PathBuf}, rc::Rc, time::SystemTime
 };
 
 
@@ -25,6 +22,7 @@ pub enum ShaderSource {
 pub(crate) struct ShaderModule {
     pub(crate) spv_path: Rc<Path>,
     pub(crate) crate_path: Option<Rc<Path>>,
+    pub(crate) loaded_at: SystemTime,
     pub(crate) inner: ash::vk::ShaderModule
 }
 
@@ -115,6 +113,8 @@ impl PipelineManager {
 
     fn set<L: PipelineLabel + 'static>(&mut self, _label: L, info: PipelineInfo) -> Result<()> {
         if let Some(_) = self.pipelines.get(&TypeId::of::<L>()) {
+            // TODO: shader hot reloading
+
             bail!("Overwriting pipelines is not currently supported.")
         }
 
@@ -122,7 +122,10 @@ impl PipelineManager {
         let pipeline = match &info {
             PipelineInfo::Compute { shader_source, entry_point } => {
                 let pipeline_layout = self.pipeline_layout;
-                let shader_module = self.load_shader_module(shader_source)?;
+
+                self.load_shader_module(shader_source)?;
+
+                let shader_module = unsafe { self.shader_modules.get(shader_source).unwrap_unchecked() };
 
                 let pipeline = compute::create_compute_pipeline(
                     device,
@@ -131,8 +134,6 @@ impl PipelineManager {
                     pipeline_layout,
                     #[cfg(debug_assertions)] std::any::type_name::<L>()
                 )?;
-
-                self.shader_modules.insert((*shader_source).clone(), shader_module);
 
                 pipeline
             },
@@ -147,11 +148,16 @@ impl PipelineManager {
                 attachment
             } => {
                 let pipeline_layout = self.pipeline_layout;
+                
                 match task_shader {
                     Some((shader_source, entry_point)) => {
-                        let task_shader_module = self.load_shader_module(shader_source)?;
-                        let mesh_shader_module = self.load_shader_module(&mesh_shader.0)?;
-                        let fragment_shader_module = self.load_shader_module(&fragment_shader.0)?;
+                        self.load_shader_module(shader_source)?;        
+                        self.load_shader_module(&mesh_shader.0)?;
+                        self.load_shader_module(&fragment_shader.0)?;
+
+                        let task_shader_module = unsafe { self.shader_modules.get(shader_source).unwrap_unchecked() };
+                        let mesh_shader_module = unsafe { self.shader_modules.get(&mesh_shader.0).unwrap_unchecked() };
+                        let fragment_shader_module = unsafe { self.shader_modules.get(&fragment_shader.0).unwrap_unchecked() };
 
                         let pipeline = graphics::create_graphics_pipeline(
                             device, 
@@ -167,16 +173,15 @@ impl PipelineManager {
                             #[cfg(debug_assertions)] std::any::type_name::<L>()
                         )?;
 
-                        self.shader_modules.insert((*shader_source).clone(), task_shader_module);
-                        self.shader_modules.insert(mesh_shader.0.clone(), mesh_shader_module);
-                        self.shader_modules.insert(fragment_shader.0.clone(), fragment_shader_module);
-
                         pipeline
                     },
                     None => {
-                        let mesh_shader_module = self.load_shader_module(&mesh_shader.0)?;
-                        let fragment_shader_module = self.load_shader_module(&fragment_shader.0)?;
-
+                        self.load_shader_module(&mesh_shader.0)?;
+                        self.load_shader_module(&fragment_shader.0)?;
+                                
+                        let mesh_shader_module = unsafe { self.shader_modules.get(&mesh_shader.0).unwrap_unchecked() };
+                        let fragment_shader_module = unsafe { self.shader_modules.get(&fragment_shader.0).unwrap_unchecked() };
+                        
                         let pipeline = graphics::create_graphics_pipeline(
                             device, 
                             None, 
@@ -190,9 +195,6 @@ impl PipelineManager {
                             pipeline_layout,
                             #[cfg(debug_assertions)] std::any::type_name::<L>()
                         )?;
-
-                        self.shader_modules.insert(mesh_shader.0.clone(), mesh_shader_module);
-                        self.shader_modules.insert(fragment_shader.0.clone(), fragment_shader_module);
 
                         pipeline
                     }
@@ -209,72 +211,88 @@ impl PipelineManager {
         Ok(())
     }
 
-    fn load_shader_module(&mut self, source: &ShaderSource) -> Result<ShaderModule> {
+    fn load_shader_module(&mut self, source: &ShaderSource) -> Result<()> {
         let device = unsafe { self.device.as_ref().unwrap() };
 
-        match source {
-            ShaderSource::Crate(path) => {
-                let full_path = std::path::absolute(&path)?;
-                let manifest_dir = env!("CARGO_MANIFEST_DIR");
-                let mut dir = PathBuf::from(manifest_dir);  
-                dir.push("shader_builder");
-            
-                let output = std::process::Command::new("cargo")
-                    .current_dir(dir)
-                    .args([
-                        "+nightly-2024-11-22",
-                        "run",
-                        "--release"
-                    ])
-                    .arg(full_path)
-                    .output()?;
-
-                if !output.status.success() {
-                    bail!("Failed to build shader module.\n{}", String::from_utf8(output.stderr)?)
-                }
-
-                let stdout = String::from_utf8(output.stdout)?;
-                //let _stderr = String::from_utf8(output.stderr)?;
-
-                let lines: Vec<&str> = stdout.lines().collect();
-                //println!("{:?}", lines);
-                let spv_path = Path::new(lines[lines.len() - 1]);
-                let spv_file = &mut File::open(spv_path)?;
-                let spirv = &ash::util::read_spv(spv_file)?;
-                
-                let shader_module = unsafe { 
-                    device.create_shader_module(
-                        &ash::vk::ShaderModuleCreateInfo::default()
-                            .code(&spirv), 
-                        None
-                    )? 
-                };
-
-                Ok(ShaderModule {
-                    spv_path: spv_path.into(),
-                    crate_path: Some(path.as_path().into()),
-                    inner: shader_module
-                })
+        match self.shader_modules.contains_key(source) {
+            true => {
+                // TODO: shader hot reloading
             },
-            ShaderSource::SPV(path) => {
-                let spv_file = &mut File::open(&path)?;
-                let spirv = &ash::util::read_spv(spv_file)?;
+            false => match source {
+                ShaderSource::Crate(path) => {
+                    let full_path = std::path::absolute(&path)?;
+                    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+                    let mut dir = PathBuf::from(manifest_dir);  
+                    dir.push("shader_builder");
                 
-                let shader_module = unsafe { 
-                    device.create_shader_module(
-                        &ash::vk::ShaderModuleCreateInfo::default()
-                            .code(&spirv), 
-                        None
-                    )? 
-                };
+                    let output = std::process::Command::new("cargo")
+                        .current_dir(dir)
+                        .args([
+                            "+nightly-2024-11-22",
+                            "run",
+                            "--release"
+                        ])
+                        .arg(full_path)
+                        .output()?;
 
-                Ok(ShaderModule {
-                    spv_path: path.as_path().into(),
-                    crate_path: None,
-                    inner: shader_module
-                })
+                    if !output.status.success() {
+                        bail!("Failed to build shader module.\n{}", String::from_utf8(output.stderr)?)
+                    }
+
+                    let stdout = String::from_utf8(output.stdout)?;
+                    //let _stderr = String::from_utf8(output.stderr)?;
+
+                    let lines: Vec<&str> = stdout.lines().collect();
+                    //println!("{:?}", lines);
+                    let spv_path = Path::new(lines[lines.len() - 1]);
+                    let spv_file = &mut File::open(spv_path)?;
+                    let spirv = &ash::util::read_spv(spv_file)?;
+                    
+                    let shader_module = unsafe { 
+                        device.create_shader_module(
+                            &ash::vk::ShaderModuleCreateInfo::default()
+                                .code(&spirv), 
+                            None
+                        )? 
+                    };
+
+                    self.shader_modules.insert(
+                        source.clone(), 
+                        ShaderModule {
+                            spv_path: spv_path.into(),
+                            crate_path: Some(path.as_path().into()),
+                            loaded_at: SystemTime::now(),
+                            inner: shader_module
+                        }
+                    );
+                },
+                ShaderSource::SPV(path) => {
+                    let spv_file = &mut File::open(&path)?;
+                    let spirv = &ash::util::read_spv(spv_file)?;
+                    
+                    let shader_module = unsafe { 
+                        device.create_shader_module(
+                            &ash::vk::ShaderModuleCreateInfo::default()
+                                .code(&spirv), 
+                            None
+                        )? 
+                    };
+
+                    self.shader_modules.insert(
+                        source.clone(), 
+                        ShaderModule {
+                            spv_path: path.as_path().into(),
+                            crate_path: None,
+                            loaded_at: SystemTime::now(),
+                            inner: shader_module
+                        }
+                    );
+                    
+                }
             }
         }
+
+        Ok(())
     }
 }
 
